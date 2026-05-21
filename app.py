@@ -1,12 +1,31 @@
+import numpy as np
 import streamlit as st
 from main_part.pdf_parser import extract_text
 from main_part.chunker import chunk_by_size
 from main_part.embedder import Embedder
-from main_part.retriever import Retriever
 from main_part.prompt_builder import build_rag_prompt
 from main_part.generator import generate_answer
 
 PDF_PATH = 'uploaded.pdf'
+
+def cosine_search(query, embedder, chunks, top_k=5):
+    """把query转成向量，和所有chunk算余弦相似度，返回top_k"""
+    q_vec = np.array(embedder.embed_query(query))
+    scores = []
+    for c in chunks:
+        c_vec = np.array(c['embedding'])
+        sim = np.dot(q_vec, c_vec) / (np.linalg.norm(q_vec) * np.linalg.norm(c_vec) + 1e-8)
+        scores.append((sim, c))
+    scores.sort(key=lambda x: x[0], reverse=True)
+    results = []
+    for i, (sim, c) in enumerate(scores[:top_k]):
+        results.append({
+            'chunk_id': c['chunk_id'],
+            'text': c['text'],
+            'source_page': c['source_page'],
+            'score': round(sim, 4),
+        })
+    return results
 
 st.set_page_config(page_title='DocQA', page_icon='📄')
 st.title('DocQA - 文档智能问答')
@@ -26,12 +45,9 @@ with st.sidebar:
 
             pages = extract_text(PDF_PATH)
             chunks = chunk_by_size(pages)
-            chunks = st.session_state.embedder.embed_chunks(chunks)
+            st.session_state.chunks = st.session_state.embedder.embed_chunks(chunks)
 
-            st.session_state.retriever = Retriever()
-            st.session_state.retriever.index_chunks(chunks)
-
-        st.success(f'已就绪，{len(chunks)} 个段落')
+        st.success(f'已就绪，{len(st.session_state.chunks)} 个段落')
 
     if st.button('清空对话'):
         st.session_state.messages = []
@@ -50,12 +66,12 @@ if question := st.chat_input('输入你的问题...'):
     with st.chat_message('user'):
         st.markdown(question)
 
-    if 'retriever' not in st.session_state:
+    if 'chunks' not in st.session_state:
         st.error('请先上传PDF文档')
     else:
-        with st.spinner('思考中...'):
-            results = st.session_state.retriever.search(
-                question, st.session_state.embedder, top_k=5
+        with st.spinner('检索中...'):
+            results = cosine_search(
+                question, st.session_state.embedder, st.session_state.chunks, top_k=5
             )
             prompt = build_rag_prompt(question, results)
             answer = generate_answer(prompt)
