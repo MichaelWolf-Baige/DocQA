@@ -9,21 +9,21 @@ from main_part.generator import generate_answer
 PDF_PATH = 'uploaded.pdf'
 
 def cosine_search(query, embedder, chunks, top_k=5):
-    """把query转成向量，和所有chunk算余弦相似度，返回top_k"""
+    """向量化余弦检索，一次矩阵乘法搞定全部chunk"""
     q_vec = np.array(embedder.embed_query(query))
-    scores = []
-    for c in chunks:
-        c_vec = np.array(c['embedding'])
-        sim = np.dot(q_vec, c_vec) / (np.linalg.norm(q_vec) * np.linalg.norm(c_vec) + 1e-8)
-        scores.append((sim, c))
-    scores.sort(key=lambda x: x[0], reverse=True)
+    chunk_matrix = np.array([c['embedding'] for c in chunks])
+    # sentence-transformers输出已L2归一化，点积即余弦相似度
+    sims = np.dot(chunk_matrix, q_vec)
+    top_idx = np.argpartition(sims, -top_k)[-top_k:]
+    top_idx = top_idx[np.argsort(sims[top_idx])[::-1]]
     results = []
-    for i, (sim, c) in enumerate(scores[:top_k]):
+    for i in top_idx:
+        c = chunks[i]
         results.append({
             'chunk_id': c['chunk_id'],
             'text': c['text'],
             'source_page': c['source_page'],
-            'score': round(sim, 4),
+            'score': round(float(sims[i]), 4),
         })
     return results
 
@@ -74,6 +74,7 @@ if question := st.chat_input('输入你的问题...'):
                 question, st.session_state.embedder, st.session_state.chunks, top_k=5
             )
             prompt = build_rag_prompt(question, results)
+        with st.spinner('生成回答中...'):
             answer = generate_answer(prompt)
 
         st.session_state.messages.append({'role': 'assistant', 'content': answer})
