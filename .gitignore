@@ -1,0 +1,5 @@
+models/
+chroma_db/
+chroma_ab/
+__pycache__/
+*.pdf
