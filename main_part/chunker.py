@@ -1,6 +1,12 @@
-def chunk_by_size(pages,chunk_size=512,overlap=128):
+import re
+
+def _split_sentences(text):
+    """按中英文标点分句，保留分隔符"""
+    return [s.strip() for s in re.split(r'(?<=[。！？；\.\!\?\;\n])', text) if s.strip()]
+
+def chunk_by_size(pages, chunk_size=512, overlap=128):
     '''
-    把多页文本按固定大小切成chunk，相邻chunk之间有重叠
+    按句子边界分块，避免截断语义。相邻chunk之间有overlap个字符的句子重叠。
     '''
     chunks = []
     chunk_id = 0
@@ -8,18 +14,35 @@ def chunk_by_size(pages,chunk_size=512,overlap=128):
     for page in pages:
         text = page['text']
         page_num = page['page']
-        start = 0
+        sentences = _split_sentences(text)
 
-        while start < len(text):
-            end = start +chunk_size
-            chunk_text = text[start:end]
+        current = ''
+        for sent in sentences:
+            if len(current) + len(sent) > chunk_size and current:
+                chunks.append({
+                    'chunk_id': chunk_id,
+                    'text': current.strip(),
+                    'source_page': page_num,
+                })
+                chunk_id += 1
+                # 保留最后几个句子做overlap
+                tail = ''
+                for s in reversed(sentences[:sentences.index(sent)]):
+                    if len(tail) + len(s) <= overlap:
+                        tail = s + tail
+                    else:
+                        break
+                current = tail
+
+            current += sent
+
+        if current.strip():
             chunks.append({
-                'chunk_id':chunk_id,
-                'text':chunk_text,
-                'source_page':page_num
+                'chunk_id': chunk_id,
+                'text': current.strip(),
+                'source_page': page_num,
             })
             chunk_id += 1
-            start = end - overlap
 
     return chunks
 
