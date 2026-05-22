@@ -4,7 +4,7 @@ import numpy as np
 class Embedder:
     def __init__(self,model_path=None):
         if model_path is None:
-            model_path = 'models/qwen3-embedding-0.6b'
+            model_path = 'models/bge-small-zh-v1.5'
         self.model=SentenceTransformer(model_path,device='cpu',local_files_only=True)
 
     def embed_chunks(self, chunks):

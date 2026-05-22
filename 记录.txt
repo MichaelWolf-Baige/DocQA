@@ -1,0 +1,434 @@
+pdf_parser.py
+  
+1. pdf_path 和 path 有什么关系？没有关系。
+
+  pdf_path 是 extract_text 函数的参数名，只在函数里面有效。path 是 main
+  里的变量名，只在 main 里有效。它们可以叫同一个名字，也可以叫不同名           字，互不影响。跟下划线没关系，下划线只是单词之间的分隔符（Python
+  用下划线不用驼峰）。
+
+  ---
+  2. pages = [] 有什么意义？
+
+  表示"创建一个空列表"。相当于你拿了一个空篮子，后面 pages.append(...)
+  就是往篮子里扔东西。
+
+  删掉它的话，第一行 pages.append(...) 就会报错：NameError: name 'pages' is not defined。因为你还没告诉 Python "pages 是个列表"就想往里放东西。
+
+  ---
+  3. fitz 是什么库？任何库都能 .open() 吗？
+
+  fitz 是 PyMuPDF 的包名。安装时用 pip install PyMuPDF，导入时写 import
+  fitz。
+
+  不是每个库都有 .open()。 open() 只是 fitz 这个库自己定义的一个函数。Chroma就不用 open()，PyTorch 也不用。每个库有自己的入口方式。你看到的.open()、.load()、.Client() 都是各自库的作者决定的，没有统一规则。
+
+  怎么知道一个库怎么用？刚才说的那个方法：
+  import fitz
+  print(dir(fitz))  # 看看这个库里有什么函数
+
+  ---
+  4. enumerate 是什么？为什么不直接 for page in doc？
+
+  for page in doc 也可以，但这样你不知道当前是第几页。
+
+  enumerate(doc) 每轮循环给你两个东西：
+  for i, page in enumerate(doc):
+      # i=0, page=第1页
+      # i=1, page=第2页
+      # ...
+
+  i 是序号（从 0 开始），page 是页面对象。所以你用 i + 1 得到页码。
+
+  对比一下：
+  # 不用 enumerate，你得自己计数
+  idx = 0
+  for page in doc:
+      # ...
+      idx = idx + 1  # 啰嗦
+
+  # 用 enumerate，一行搞定
+  for i, page in enumerate(doc):
+
+  ---
+  5. pages.append({"page": i+1, "text": text}) 是什么意思？
+
+  拆开看：
+
+  - pages.append(东西) → 把"东西"加到列表末尾
+  - {"page": i+1, "text": text} → 这是一个字典（dict），它存了两个键值对
+
+  这行代码的效果：
+  # 假设 i=0, text="这是第一页的内容..."
+  pages.append({"page": 1, "text": "这是第一页的内容..."})
+
+  # 现在 pages 列表变成:
+  # [{"page": 1, "text": "这是第一页的内容..."}]
+
+  所以 pages
+  最终是一个列表，里面每个元素都是一个字典，字典里存了页码和文本。
+
+  ---
+  6. doc.close() 为什么需要？
+
+  打开文件用完了要关上。就像你打开冰箱拿完东西要关门。不关的话会占用内存，PD
+  F 特别大的时候可能导致内存不够。不写这行程序也能跑，但这是个好习惯。
+
+  ---
+  7. __name__ 是你自己设定的吗？
+
+  不是。__name__ 是 Python 自动给每个 .py 文件设置的一个内置变量。
+
+  - 当你直接运行 python src/pdf_parser.py → __name__ 等于 "__main__"
+  - 当你从另一个文件 import pdf_parser → __name__ 等于 "pdf_parser"
+
+  所以 if __name__ == "__main__": 的意思是："如果这个文件是直接运行的（而不
+  是被别人导入的），就执行下面的代码"。
+
+  这样你以后可以 from pdf_parser import extract_text
+  只拿函数，不会自动跑测试代码。
+
+  双下划线 __ 在 Python 里表示"这是系统内置的东西，你别自己起这种名字"。
+
+  ---
+  8. 单引号和双引号有区别吗？
+
+  没有区别。"hello" 和 'hello' 完全一样。
+
+  但有一种情况必须区分：字符串里面本身含有引号时：
+  # 正常
+  print(f"=== 第{r['page']}页 ===")   # 外面双引号，里面单引号，不冲突
+
+  # 报错
+  print(f'=== 第{r['page']}页 ===')   # Python看到第一个'就以为字符串结束了
+
+  里面的 r['page'] 已经有单引号了，所以外面必须用双引号。
+
+  ---
+  9. path = sys.argv[1] if len(sys.argv) > 1 else 'D:\桌面\I.pdf'
+  是什么意思？
+
+  这是一个三元表达式：A if 条件 else B，相当于"如果条件成立取 A，不成立取B"。
+
+  拆开：
+
+  # 等价于：
+  if len(sys.argv) > 1:           # 如果命令行给了参数
+      path = sys.argv[1]           # 用命令行参数作为文件路径
+  else:                            # 如果没给参数
+      path = "D:\\桌面\\I.pdf"     # 用这个默认路径
+
+  sys.argv 是命令行参数列表。你运行 python src/pdf_parser.py data/test.pdf
+  时，sys.argv[0] 是文件名，sys.argv[1] 是
+  "data/test.pdf"。没传参数的话，len(sys.argv) 就是 1，就用默认路径。
+
+
+
+
+
+chunk.py
+
+1. for page in pages: 的 pages 是哪来的
+
+  你说的对，这里容易混。看数据是怎么流动的：
+
+  # pdf_parser.py
+  def extract_text(pdf_path):
+      pages = [...]     # ← 这个 pages 是 extract_text 函数内部的
+      return pages      # ← 返回出去了
+
+  # chunker.py
+  from pdf_parser import extract_text
+  pages = extract_text("data/test.pdf")  # ← 接收了返回值，命名为 pages
+  for page in pages:                      # ← 遍历的 这个 pages
+
+  extract_text 里的 pages → return 出来 → chunker.py 里的 pages
+
+  两个变量都叫 pages，但是在不同文件里。相当于你把 pdf_parser 里的 pages
+  复制了一份到 chunker.py 里，也叫 pages。
+
+  ---
+  2. text = page['text'] 和 page_num = page['page'] 是什么意思
+
+  page 是一个字典，长得像这样：
+
+  {"page": 1, "text": "第一章 xxxxx（很多字）..."}
+
+  page['text'] 就是从这个字典里把 text 这个字段的值取出来——也就是"第一章
+  xxxxx..."那段长文本。
+
+  page['page'] 就是取页码——拿到 1。
+
+  跟你在字典里查一个字的意思一样：键是 'text'，值是那段正文。
+
+  ---
+  3. overlap 明明设了 128，为什么看起来是连贯的、没重复？
+
+  因为相邻 chunk 的 overlap 部分在同一个 chunk_size 窗口内只差了 384
+  个字符，你用 [:100] 打印只看到前 100 字，看不到重叠。
+
+  画个图：
+
+  chunk 0: [0 ─────────────────────────── 512]
+  chunk 1:               [384 ─────────────────────────── 896]
+                           ↑ 这 128 个字符在两个 chunk 里都出现
+
+  你用[:100]只看到:
+  chunk 0: [0 ── 100]
+  chunk 1:        [384 ── 484]        ← 看不到重叠
+
+  overlap 不是让两个 chunk 开头一样，是让第一个 chunk 的尾部 = 第二个 chunk
+  的开头。
+
+  要验证，加一段测试代码打印 chunk 的尾部和下一个 chunk 的头部：
+
+  if __name__ == "__main__":
+      pages = extract_text("data/test.pdf")
+      chunks = chunk_by_size(pages)
+      # 比较 chunk0 的结尾和 chunk1 的开头
+      print("chunk0 最后 50 字:", chunks[0]["text"][-50:])
+      print("chunk1 前 50 字:", chunks[1]["text"][:50])
+
+  你会看到它们是一样的。
+
+  ▎ 也可以想：如果 overlap=0，相邻 chunk 之间没有任何关系，它们就是纯粹的
+  ▎ [0:512]、[512:1024]、[1024:1536]...。现在加了 overlap，就是
+  ▎ [0:512]、[384:896]、[768:1280]...。
+
+  ---
+  4. chunk_text = text[start:end] 是什么意思
+
+  text[start:end] 是 Python 的切片语法：从字符串的第 start 个字符，取到第
+  end-1 个字符。
+
+  "abcdefg"[0:3]   → "abc"   （取索引 0,1,2）
+  "abcdefg"[2:5]   → "cde"   （取索引 2,3,4）
+
+  所以 chunk_text = text[start:start+512] 就是从字符串的 start
+  位置开始，往后取 512 个字符。
+
+  chunk_size=512 控制的是每个 chunk 最多包含多少个字符，不是字节数。
+
+
+
+
+
+
+
+embedder.py
+
+1. 为什么模型在本地了还要 from sentence_transformers import
+  SentenceTransformer？
+
+  模型文件在 models/qwen3-embedding-0.6b/ 目录里，里面有这些文件：
+
+  config.json          ← 模型结构配置
+  model.safetensors    ← 神经网络的权重参数（1.2GB，这才是"大脑"）
+  tokenizer.json       ← 分词器
+
+  这些是数据。但数据自己不会跑——你需要一个引擎来加载它、运行它。
+
+  打个比方：你下载了一个 .psd 文件（数据），你需要安装 Photoshop
+  软件（引擎）才能打开它、用它修图。
+
+  SentenceTransformer 就是这个引擎。它是一个 Python 类，知道怎么：
+  - 读取 config.json 知道模型长什么样
+  - 加载 model.safetensors 里的权重
+  - 接收文本，逐层计算，输出向量
+
+  from sentence_transformers import SentenceTransformer 就是导入这个引擎。
+
+  ---
+  2. device='cpu' 是什么？
+
+  神经网络做的是大量矩阵乘法。矩阵乘法可以在两种硬件上跑：
+
+  ┌────────┬───────────────────────┬────────────────┐
+  │ device │         硬件          │      速度      │
+  ├────────┼───────────────────────┼────────────────┤
+  │ 'cpu'  │ 你的 Intel/AMD 处理器 │ 慢，但不用显卡 │
+  ├────────┼───────────────────────┼────────────────┤
+  │ 'cuda' │ NVIDIA 显卡           │ 快 10-50 倍    │
+  └────────┴───────────────────────┴────────────────┘
+
+  device='cpu' 告诉 SentenceTransformer："用 CPU 算，别找显卡"。
+
+  你的 0.6B 模型在 CPU 上编码一个句子大概 0.1-0.3 秒，完全够用。而且不用折腾
+   CUDA 驱动。
+
+  ---
+  3. self 是什么？
+
+  这是 Python 里最重要的概念之一。看这段代码：
+
+  class Dog:
+      def __init__(self, name):
+          self.name = name          # self.name 属于"这只狗"
+
+      def bark(self):
+          print(f'{self.name} 汪汪叫')   # self.name 拿到"这只狗"的名字
+
+  # 创建两只不同的狗
+  dog1 = Dog('大黄')
+  dog2 = Dog('小黑')
+
+  dog1.bark()   # 输出: 大黄 汪汪叫
+  dog2.bark()   # 输出: 小黑 汪汪叫
+
+  self = "我自己这个实例"。dog1.bark() 里的 self 就是 dog1，所以 self.name
+  拿到 '大黄'。
+
+  没有 self，函数就没法区分"我操作的是大黄还是小黑"。
+
+  在你的 Embedder 里：
+
+  embedder1 = Embedder()   # 这个 embedder1 加载了一次模型
+  # embedder1.embed_chunks(chunks)  ← 调用时 self = embedder1
+
+  ---
+  4. self.model 是怎么来的？
+
+  class Embedder:
+      def __init__(self, model_path=None):
+          if model_path is None:
+              model_path = 'models/qwen3-embedding-0.6b'
+          self.model = SentenceTransformer(model_path, device='cpu')
+
+  逐行解释：
+
+  - __init__ 是"初始化方法"，创建 Embedder() 时自动执行
+  - self.model = SentenceTransformer(...) 把加载好的模型挂在 self 上
+
+  为什么挂在 self 上？因为后面的 embed_chunks 方法要用它：
+
+  def embed_chunks(self, chunks):
+      vectors = self.model.encode(texts)   # ← 用 self.model 来编码
+
+  如果不用 self.model，写成局部变量的话：
+
+  def __init__(self):
+      model = SentenceTransformer(...)   # 局部变量，出了 __init__ 就没了
+
+  def embed_chunks(self, chunks):
+      # 这里拿不到 model！NameError
+
+  self.xxx 的作用 = 让变量在整个类的所有方法之间共享。
+
+  ---
+  5. embed_chunks 是怎么把文本转成向量的？
+
+  这是核心问题。分四步讲：
+
+  第一步：分词（Tokenization）
+
+  你的文本 "深度学习很有趣" 先被拆成 token：
+
+  "深度学习很有趣"  →  ["深度", "学习", "很", "有趣"]
+                         ↓
+                        [1234, 5678, 90, 2345]   ← 每个数字对应词表里的一个
+  token
+
+  第二步：过 Transformer 层
+
+  这些 token ID 进入 30+ 层 Transformer 网络。每一层做两件事：
+  - Self-Attention：看句子中每个词和其他词的关系。"深度"和"学习"关系强，"深
+  度"和"有趣"关系弱
+  - Feed-Forward：对每个词的表示做非线性变换
+
+  经过 30 层后，每个 token 都变成了一个 1024 维的向量。
+
+  第三步：池化（Pooling）
+
+  30 层输出的是一个矩阵——每个 token 一个 1024
+  维向量。但我们需要整个句子的一个向量。怎么合并？
+
+  Qwen3-Embedding 用的是 Mean Pooling（均值池化）：
+
+  token1: [0.1, 0.2, -0.1, ...]   (1024维)
+  token2: [0.3, -0.1, 0.2, ...]   (1024维)
+  token3: [-0.2, 0.4, 0.1, ...]   (1024维)
+  token4: [0.1, 0.0, 0.3, ...]    (1024维)
+           ↓   ↓   ↓
+  平均值:  [0.075, 0.125, 0.125, ...]  ← 这就是 sentence embedding
+
+  第四步：归一化
+
+  最后把向量长度缩放到 1。这样余弦相似度计算就等价于点积，速度快。
+
+  原始: [0.075, 0.125, 0.125, ...]
+               ↓ L2归一化
+  归一化: [0.023, 0.039, 0.039, ...]   ← 模长=1
+
+  这就是 vectors[i].tolist() 拿到的列表。
+
+  如果同时传 52 个 chunk
+
+  model.encode(texts) 传一个列表，内部做 batch 处理——把 52
+  个句子拼成一个大矩阵同时过网络。GPU 上的矩阵乘法天然支持 batch，比逐个调快
+   20-50 倍。
+
+  ---
+  6. embed_query 是怎么把问题转成向量的？
+
+  def embed_query(self, query):
+      return self.model.encode(query).tolist()
+
+  和 embed_chunks 完全一样的流程。不同的只是输入：一个问句 vs 一堆 chunk。
+
+  这里有一个面试重点：query 和 chunk 用的是同一个模型。这意味着 query 向量和
+   chunk 向量在同一个"语义空间"里——query 的向量可以和 chunk
+  的向量比距离。如果 query 用模型 A 编码、chunk 用模型 B
+  编码，两个向量不在同一个空间里，比距离就没意义了。
+
+  类比：你不能用中文给一个人出题，用法语给另一个人出题，然后说"谁答得更接近
+  ，说明谁更聪明"——必须用同一种语言。
+
+  ---
+  7. @property 是干嘛的？
+
+  对比两种写法：
+
+  # 不用 @property
+  print(embedder.dim())    # 需要括号，看起来像"调用方法"
+
+  # 用 @property
+  print(embedder.dim)      # 像"读属性"，更自然
+
+  @property 把方法伪装成属性。它不是必须的，但读代码的人一眼就知道 dim
+  不会改变（只读），不用猜"这到底是个属性还是方法"。
+
+  面试可能会问。知道它的作用是"把方法调用变成属性访问"就够了。
+
+  ---
+  8. 为什么相邻 chunk 的相似度是 0.8951？
+
+  你 Day 2 的 chunker 是这么切的：
+
+  chunk 0:  "第一章 深度学习概述。深度学习是机器学习的一个分支..."
+  chunk 1:  "...的一个重要方向。深度神经网络由多层神经元组成..."  ← overlap
+  128，所以开头和 chunk0 结尾重叠
+  chunk 2:  "...组成。训练深度神经网络需要大量数据和计算资源..."
+
+  相似度 0.8951 说明：
+
+  1. overlap 起作用了：相邻 chunk 共享 128 个字符，包含相同的词和短语
+  2. 语义连续：文档的前后内容是相关的，都在讲同一主题
+  3. Embedding 模型正确：语义相近的文本 → 向量距离近
+
+  如果两个 chunk
+  完全不相关（比如一个是"深度学习"，一个是"苹果很好吃"），相似度应该 < 0.5。
+
+  ---
+  总结一下流程图：
+
+  文本 → Tokenizer分token → 30层Transformer → Mean Pooling → 归一化 →
+  [0.018, -0.007, ...] (1024个浮点数)
+
+
+在解析和分块的时候要等好久，是不是因为是cpu的原因，有没有优化方案
+
+
+
+
+
+
+
