@@ -1,4 +1,4 @@
-import chromadb
+﻿import chromadb
 
 class Retriever:
     def __init__(self,persist_dir = './chroma_db',collection_name='docqa'):
@@ -37,7 +37,7 @@ class Retriever:
         )
         print(f'索引完成，共{self.collection.count()}条')
 
-    def search(self,query,embedder,top_k=5):
+    def search(self,query,embedder,top_k=10):
         '''用问题检索相关的top_k个chunk'''
         q_vec = embedder.embed_query(query)
 
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     embedder = Embedder()
 
     print('解析pdf并分块...')
-    pages = extract_text(r'D:\桌面\I.pdf')
+    pages = extract_text(r'sample.pdf')
     chunks = chunk_by_size(pages)
     chunks = embedder.embed_chunks(chunks)
 

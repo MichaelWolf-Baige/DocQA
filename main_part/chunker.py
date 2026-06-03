@@ -1,4 +1,4 @@
-import re
+﻿import re
 
 def _split_sentences(text):
     """按中英文标点分句，保留分隔符"""
@@ -48,7 +48,7 @@ def chunk_by_size(pages, chunk_size=512, overlap=128):
 
 if __name__ == "__main__":
     from pdf_parser import extract_text
-    pages = extract_text('D:\桌面\I.pdf')
+    pages = extract_text('sample.pdf')
     chunks = chunk_by_size(pages)
     print(f'共{len(chunks)}个chunk\n')
     for c in chunks[:5]:

@@ -1,5 +1,29 @@
+# 模型文件（需自行下载）
 models/
+
+# 向量数据库（运行时生成）
 chroma_db/
 chroma_ab/
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+
+# PDF文件（用户上传/测试用）
 *.pdf
+
+# 个人笔记
+记录.txt
+
+# Streamlit
+.streamlit/
+
+# IDE
+.vscode/
+.idea/
+
+# 环境
+venv/
+.venv/
+*.egg-info/

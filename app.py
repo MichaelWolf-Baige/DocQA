@@ -57,7 +57,7 @@ if question := st.chat_input('输入你的问题...'):
     else:
         with st.spinner('检索中...'):
             results = st.session_state.retriever.search(
-                question, st.session_state.embedder, top_k=5
+                question, st.session_state.embedder, top_k=10
             )
             prompt = build_rag_prompt(question, results)
         with st.spinner('生成回答中...'):

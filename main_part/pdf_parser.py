@@ -1,4 +1,4 @@
-import fitz
+﻿import fitz
 
 def extract_text(pdf_path):
     '''读取pdf文件，返回每一页的文本
@@ -17,7 +17,7 @@ def extract_text(pdf_path):
     return pages
 if __name__ == '__main__':
     import sys
-    path=sys.argv[1] if len(sys.argv) > 1 else 'D:\桌面\I.pdf'
+    path=sys.argv[1] if len(sys.argv) > 1 else 'sample.pdf'
     results = extract_text(path)
     print(f'共提取{len(results)}页\n')
     for r in results[:3]:  #先看前三页

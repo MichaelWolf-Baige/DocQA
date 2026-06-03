@@ -1,24 +1,20 @@
-def build_rag_prompt(query, retrived_chunks):
-    '''把检索结果和用户问题拼成完整prompt'''
+﻿def build_rag_prompt(query, retrieved_chunks):
+    '''把检索结果和用户问题拼成完整prompt，针对1.5B小模型优化'''
     context_parts = []
-    for i, c in enumerate(retrived_chunks):
-        part = (
-            f'[来源第{c["source_page"]}页] 相关度：{c["score"]}\n'
-            f'{c["text"]}'
-        )
+    for c in retrieved_chunks:
+        part = f'[第{c["source_page"]}页] {c["text"]}'
         context_parts.append(part)
 
-    context = '\n\n--\n\n'.join(context_parts)
+    context = '\n\n'.join(context_parts)
 
     prompt = (
-        '你是一个帮助用户理解文档内容的助手。'
-        '请严格根据以下文档片段回答问题。\n\n'
-        f'文档内容：\n{context}\n\n'
-        f'用户问题：{query}\n\n'
-        '回答要求：\n'
-        '1.如果文档中有相关信息，请给出准确回答，并标注引用来源页码\n'
-        '2.如果文档中没有相关信息，请明确说“文档中未提及”，不要编造\n'
-        '3.回答尽量简洁'
+        f'从以下文档片段中找出问题的答案，引用文档中的具体信息作答。'
+        f'如果确实找不到相关信息，才回复”文档未提及”。\n'
+        f'\n'
+        f'文档片段：\n{context}\n'
+        f'\n'
+        f'问题：{query}\n'
+        f'答案：'
     )
 
     return prompt
@@ -30,7 +26,7 @@ if __name__ == "__main__":
     from retriever import Retriever
 
     embedder = Embedder()
-    pages = extract_text(r'D:\桌面\I.pdf')
+    pages = extract_text(r'sample.pdf')
     chunks = chunk_by_size(pages)
     chunks = embedder.embed_chunks(chunks)
 

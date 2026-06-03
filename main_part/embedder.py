@@ -1,4 +1,4 @@
-from sentence_transformers import SentenceTransformer
+﻿from sentence_transformers import SentenceTransformer
 import numpy as np
 
 class Embedder:
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     from pdf_parser import extract_text
     from chunker import chunk_by_size
 
-    pages = extract_text(r'D:\桌面\I.pdf')
+    pages = extract_text(r'sample.pdf')
     chunks = chunk_by_size(pages)
 
     embedder = Embedder()
