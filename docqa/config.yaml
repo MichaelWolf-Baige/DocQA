@@ -1,0 +1,64 @@
+# DocQA 集中配置
+# 换组件只需改这个文件，不需要动任何代码
+
+# ====== 文档摄入 ======
+ingestion:
+  parser:
+    type: pymupdf          # pymupdf | pdfplumber | marker
+  chunker:
+    type: sentence         # sentence | fixed | recursive
+    chunk_size: 256         # 小块便于精准检索
+    overlap: 64             # overlap = 25% chunk_size
+  # chunk 上下文扩展 (small-to-big)
+  chunk_expansion:
+    enabled: true           # 检索到小块后，拉取前后相邻chunk拼成大块给LLM
+    window: 1               # 前后各取1个相邻chunk
+  embedder:
+    type: bge-small-zh     # bge-small-zh | bge-m3 | openai
+    model_path: models/bge-small-zh-v1.5
+    device: cpu
+  vector_store:
+    type: chromadb         # chromadb | faiss | milvus
+    persist_dir: ./chroma_db
+    collection_name: docqa
+    distance_metric: cosine
+
+# ====== 检索 ======
+retrieval:
+  mode: hybrid             # dense | bm25 | hybrid
+  top_k: 10
+  # 混合检索设置
+  hybrid:
+    rrf_k: 60
+  # 查询改写
+  query_rewrite:
+    enabled: true           # 启用多查询改写
+    n_variants: 3           # 生成变体数
+  # 重排序
+  reranker:
+    enabled: true
+    type: bge-reranker
+    model: BAAI/bge-reranker-v2-m3
+    candidate_pool: 50
+    output_top_k: 10
+
+# ====== 生成 ======
+generation:
+  llm:
+    type: ollama            # ollama | openai | deepseek
+    model: qwen2.5:7b
+    temperature: 0.1
+    max_tokens: 1024
+    timeout: 300
+  prompt:
+    type: default           # default | strict-reasoning | few-shot
+    system_prompt: "你是文档问答助手，只根据用户提供的文档内容作答，引用具体信息，用中文。"
+
+# ====== 评估 ======
+evaluation:
+  metrics: [recall@3, recall@5, recall@10, recall@20, precision@3, precision@5, precision@10, mrr, ndcg@10, hit_rate@5]
+  thresholds:
+    recall_at_5: 0.85
+    recall_at_10: 0.90
+    mrr: 0.75
+    ndcg_at_10: 0.75

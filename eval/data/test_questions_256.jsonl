@@ -1,0 +1,30 @@
+{"id": "q001", "question": "旅游合同编号是什么？", "question_type": "exact_match", "ground_truth": "ECDJ260424BBE10I", "relevant_chunk_ids": [0, 4], "difficulty": "easy"}
+{"id": "q002", "question": "旅行社的经营许可证编号是什么？", "question_type": "exact_match", "ground_truth": "L-GD-CJ00234", "relevant_chunk_ids": [4], "difficulty": "easy"}
+{"id": "q003", "question": "旅游费用每人多少钱？", "question_type": "exact_match", "ground_truth": "246元/人", "relevant_chunk_ids": [52, 53], "difficulty": "easy"}
+{"id": "q004", "question": "行程开始日期是哪天？", "question_type": "fact_lookup", "ground_truth": "2026年05月01日", "relevant_chunk_ids": [52, 63], "difficulty": "easy"}
+{"id": "q005", "question": "如果行程开始前3天取消合同，需要扣除多少费用？", "question_type": "exact_match", "ground_truth": "扣除旅游费用总额的40%", "relevant_chunk_ids": [38], "difficulty": "medium"}
+{"id": "q006", "question": "行程开始前7天以上取消合同，能退多少钱？", "question_type": "fact_lookup", "ground_truth": "退还全部旅游费用，不承担违约责任", "relevant_chunk_ids": [35, 36], "difficulty": "easy"}
+{"id": "q007", "question": "旅行社的投诉电话是多少？", "question_type": "exact_match", "ground_truth": "0755-12345", "relevant_chunk_ids": [62], "difficulty": "easy"}
+{"id": "q008", "question": "旅游者出发当天取消合同，扣除比例是多少？", "question_type": "exact_match", "ground_truth": "扣除旅游费用总额的60%", "relevant_chunk_ids": [38], "difficulty": "medium"}
+{"id": "q009", "question": "旅行社的全称是什么？", "question_type": "fact_lookup", "ground_truth": "深圳市报春国际旅游集团有限公司", "relevant_chunk_ids": [4], "difficulty": "easy"}
+{"id": "q010", "question": "旅游者有哪些义务需要遵守？请列举至少三条。", "question_type": "summary", "ground_truth": "包括：支付旅游费用、遵守法律法规、遵守公共秩序和社会公德、爱护旅游资源、保护生态环境等", "relevant_chunk_ids": [17, 18], "difficulty": "medium"}
+{"id": "q011", "question": "旅游费用包含哪些项目？", "question_type": "summary", "ground_truth": "包含交通费、住宿费、餐费、景区门票费、导游服务费、安排的旅游项目费用等", "relevant_chunk_ids": [7], "difficulty": "easy"}
+{"id": "q012", "question": "旅游费用不包含哪些项目？", "question_type": "fact_lookup", "ground_truth": "不包含个人旅游意外保险费用、未约定的费用等", "relevant_chunk_ids": [74], "difficulty": "medium"}
+{"id": "q013", "question": "旅行社未经旅游者同意转团拼团，需要支付多少违约金？", "question_type": "exact_match", "ground_truth": "旅游费用总额25%的违约金", "relevant_chunk_ids": [44], "difficulty": "medium"}
+{"id": "q014", "question": "行程中有哪些旅游景点？至少列3个。", "question_type": "summary", "ground_truth": "CS野战、古龙峡漂流、玻璃桥(1314米)、悬空栈道等", "relevant_chunk_ids": [67, 69, 70], "difficulty": "medium"}
+{"id": "q015", "question": "旅游者个人信息中，身份证号是多少？", "question_type": "exact_match", "ground_truth": "440102200412105615", "relevant_chunk_ids": [62, 63], "difficulty": "easy"}
+{"id": "q016", "question": "合同中定义的必要费用具体指什么？", "question_type": "fact_lookup", "ground_truth": "指旅行社履行合同已经发生的费用以及相关交通、住宿、旅游观光汽车等需要支付且不可退还的费用", "relevant_chunk_ids": [12], "difficulty": "medium"}
+{"id": "q017", "question": "行程开始前6到4天取消合同，扣除多少？", "question_type": "exact_match", "ground_truth": "扣除旅游费用总额的20%", "relevant_chunk_ids": [38], "difficulty": "easy"}
+{"id": "q018", "question": "旅行社违约取消行程，需要承担什么责任？", "question_type": "summary", "ground_truth": "退还全部旅游费用，并根据取消时间支付违约金", "relevant_chunk_ids": [42, 43, 44], "difficulty": "medium"}
+{"id": "q019", "question": "出发当天的集合地点有哪些？", "question_type": "fact_lookup", "ground_truth": "地铁5号线广州东站C出口、地铁2号线越秀公园C出口、广州花都北站A出口", "relevant_chunk_ids": [65], "difficulty": "easy"}
+{"id": "q020", "question": "合同争议的解决方式有哪些？", "question_type": "fact_lookup", "ground_truth": "协商解决、向有关部门投诉、向仲裁委员会仲裁、向人民法院起诉", "relevant_chunk_ids": [60, 61], "difficulty": "easy"}
+{"id": "q021", "question": "行程中安排的玻璃桥总长多少米？", "question_type": "exact_match", "ground_truth": "1314米", "relevant_chunk_ids": [69], "difficulty": "easy"}
+{"id": "q022", "question": "旅游者的电话号码是多少？", "question_type": "exact_match", "ground_truth": "13678907700", "relevant_chunk_ids": [62, 63], "difficulty": "easy"}
+{"id": "q023", "question": "这个合同可以退全款的最后截止时间是哪天？（提示：行程5月1日开始）", "question_type": "fact_lookup", "ground_truth": "4月24日之前（行程开始前7日以上）", "relevant_chunk_ids": [35, 36], "difficulty": "medium"}
+{"id": "q024", "question": "旅行社的营业执照统一社会信用代码是什么？", "question_type": "exact_match", "ground_truth": "91440300", "relevant_chunk_ids": [4], "difficulty": "medium"}
+{"id": "q025", "question": "这个旅游合同适用的法律是哪一部？", "question_type": "fact_lookup", "ground_truth": "《中华人民共和国民法典》", "relevant_chunk_ids": [1, 14], "difficulty": "easy"}
+{"id": "q026", "question": "这份合同中提到的签证费用包含在团费里吗？", "question_type": "boundary", "ground_truth": "文档未提及签证相关内容（此合同为境内旅游合同）", "relevant_chunk_ids": [], "difficulty": "hard", "is_unanswerable": true}
+{"id": "q027", "question": "如果遇到台风等不可抗力导致行程变更，增加的费用由谁承担？", "question_type": "fact_lookup", "ground_truth": "增加的食宿费用由旅游者承担，增加的返程费用由旅行社与旅游者分担", "relevant_chunk_ids": [28, 29], "difficulty": "medium"}
+{"id": "q028", "question": "旅游者是否可以转让合同给第三方？需要什么条件？", "question_type": "fact_lookup", "ground_truth": "可以转让，需在行程开始前通知旅行社，增加的费由旅游者和第三人承担", "relevant_chunk_ids": [30, 31], "difficulty": "medium"}
+{"id": "q029", "question": "行程中是否有购物安排？合同中怎么约定的？", "question_type": "summary", "ground_truth": "合同中明确禁止擅自安排购物，需双方协商一致或旅游者要求且不影响其他旅游者行程安排才可安排", "relevant_chunk_ids": [55, 56, 57], "difficulty": "hard"}
+{"id": "q030", "question": "旅行社接待残疾人游客时，有什么特殊安排？", "question_type": "boundary", "ground_truth": "文档未提及残疾人游客的特殊安排", "relevant_chunk_ids": [], "difficulty": "hard", "is_unanswerable": true}

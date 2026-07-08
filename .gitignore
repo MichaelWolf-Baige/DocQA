@@ -27,3 +27,12 @@ __pycache__/
 venv/
 .venv/
 *.egg-info/
+
+# 评估报告（运行时生成）
+eval/data/baseline_report_*.md
+eval/data/baseline_report_*.txt
+eval/data/judge_comparison_*.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
