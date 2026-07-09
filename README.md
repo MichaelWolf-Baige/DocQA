@@ -35,20 +35,30 @@ ollama pull qwen2.5:7b
 ```python
 from docqa.pipeline import DocQAPipeline
 
-# 从配置构建流水线
 pipeline = DocQAPipeline.from_config()
 
-# 摄入文档
-pipeline.ingest('your_document.pdf')
+# ----- 摄入文档 -----
+# 单文件
+pipeline.ingest('contract.pdf')
 
-# 问答
+# 多文件
+pipeline.ingest(['contract.pdf', 'invoice.pdf'])
+
+# 整个目录（自动找所有 PDF）
+pipeline.ingest('./docs/')
+
+# 分批追加（不会删旧的）
+pipeline.ingest('report.pdf', clear=False)
+
+# ----- 问答 -----
 answer = pipeline.ask('你的问题？')
 print(answer)
 
-# 只看检索结果
+# ----- 只看检索结果 -----
 chunks = pipeline.retrieve('你的问题？', top_k=5)
 for c in chunks:
-    print(f'chunk {c.chunk_id} | page {c.source_page} | {c.text[:100]}')
+    src = c.source_file or ''
+    print(f'[{src} ] chunk {c.chunk_id} | p{c.source_page} | {c.text[:100]}')
 ```
 
 **Streamlit UI 方式：**
@@ -257,9 +267,9 @@ numpy, scikit-learn      # 数值计算
 - ✅ GPU 完整评估（5 种方案对比）
 - ✅ LLM 后端解耦（Ollama / OpenAI 兼容 / 云端 API 自由切换）
 - ✅ CPU 优化预设（config_cpu.yaml，无 GPU 笔记本可运行）
+- ✅ 多文档支持（单文件/多文件/目录/增量追加）
 
 **待做的：**
-- ◻️ 多文档跨域评估（验证泛化能力）
 - ◻️ 生成质量评估（RAGAS / LLM Judge）
 
 **当前效果（新架构，256chunk）：**
