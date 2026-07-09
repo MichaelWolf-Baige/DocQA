@@ -1,0 +1,71 @@
+# DocQA CPU 优化配置
+# =====================
+# 适用于没有 GPU 的普通笔记本（8-16GB 内存）
+# 已针对 CPU 推理做了最大化优化，同时保持较好的检索质量
+#
+# 使用方式:
+#   pipeline = DocQAPipeline.from_config('docqa/config_cpu.yaml')
+#
+# 预计性能（16GB RAM 笔记本）:
+#   - 文档摄入: ~5-10s (含 embedding)
+#   - 单次检索: ~3-5s  (hybrid + reranker)
+#   - 单次问答: ~10-15s (检索 + LLM 生成)
+#
+# 如果还要更快:
+#   - 关掉 reranker (quality↓ speed↑)
+#   - 换更小的 LLM: qwen2.5:0.5b 或 qwen2.5:1.5b
+
+ingestion:
+  parser:
+    type: pymupdf
+  chunker:
+    type: sentence
+    chunk_size: 256
+    overlap: 64
+  chunk_expansion:
+    enabled: true            # chunk 扩展不需要 GPU，保持开启
+    window: 1
+  embedder:
+    type: bge-small-zh
+    model_path: models/bge-small-zh-v1.5
+    device: cpu              # ★ CPU 模式
+  vector_store:
+    type: chromadb
+    persist_dir: ./chroma_db
+    collection_name: docqa
+    distance_metric: cosine
+
+retrieval:
+  mode: hybrid
+  top_k: 10
+  hybrid:
+    rrf_k: 60
+  query_rewrite:
+    enabled: false           # ★ 关闭: LLM 改写加速效果有限(评估数据: Recall@5 83%→74%), CPU 上每个查询多花 20-30s
+  reranker:
+    enabled: true            # ★ 保留: 这是提升最大的组件(Recall@5 62%→83%), CPU 上每查询 ~3-5s
+    type: bge-reranker
+    model: BAAI/bge-reranker-v2-m3
+    candidate_pool: 50
+    output_top_k: 10
+
+generation:
+  llm:
+    type: ollama
+    model: qwen2.5:1.5b     # ★ 推荐 1.5b (~1GB), CPU 上 10-15 token/s
+    # 备选: qwen2.5:3b (~2GB, CPU 上 5-8 token/s, 质量更好)
+    # 备选: qwen2.5:7b (~5GB, CPU 上 2-4 token/s, 需要 >=16GB 内存)
+    temperature: 0.1
+    max_tokens: 1024
+    timeout: 300
+  prompt:
+    type: default
+    system_prompt: "你是文档问答助手，只根据用户提供的文档内容作答，引用具体信息，用中文。"
+
+evaluation:
+  metrics: [recall@3, recall@5, recall@10, recall@20, precision@3, precision@5, precision@10, mrr, ndcg@10, hit_rate@5]
+  thresholds:
+    recall_at_5: 0.85
+    recall_at_10: 0.90
+    mrr: 0.75
+    ndcg_at_10: 0.75

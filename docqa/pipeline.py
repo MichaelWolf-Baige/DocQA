@@ -322,7 +322,9 @@ class DocQAPipeline:
         rtype = rrcfg.get('type', 'bge-reranker')
         if rtype == 'bge-reranker':
             from docqa.retrieval.reranker import BGEReranker
-            return BGEReranker(model_name=rrcfg.get('model', 'BAAI/bge-reranker-v2-m3'))
+            import torch
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            return BGEReranker(model_name=rrcfg.get('model', 'BAAI/bge-reranker-v2-m3'), device=device)
         raise ValueError(f"不支持的 reranker type: {rtype}")
 
     @staticmethod
@@ -336,15 +338,44 @@ class DocQAPipeline:
 
     @staticmethod
     def _build_llm(cfg: Dict) -> LLM:
+        """工厂方法：根据 config 创建 LLM 实例。
+
+        支持的后端:
+          ollama              → Ollama 原生 API (http://localhost:11434/api/chat)
+          openai              → OpenAI 兼容 API (任何 /v1/chat/completions 端点)
+                                包括: OpenAI 官方、Ollama /v1、DeepSeek、vLLM 等
+
+        切换模型只需改 config.yaml 的 generation.llm 段，不需要改代码。
+        """
         gcfg = cfg.get('generation', {})
         lcfg = gcfg.get('llm', {})
         ltype = lcfg.get('type', 'ollama')
+        model = lcfg.get('model', 'qwen2.5:7b')
+        temperature = lcfg.get('temperature', 0.1)
+        max_tokens = lcfg.get('max_tokens', 1024)
+        timeout = lcfg.get('timeout', 300)
+
         if ltype == 'ollama':
             from docqa.generation.llm import OllamaLLM
             return OllamaLLM(
-                model=lcfg.get('model', 'qwen2.5:7b'),
-                temperature=lcfg.get('temperature', 0.1),
-                max_tokens=lcfg.get('max_tokens', 1024),
-                timeout=lcfg.get('timeout', 300),
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
             )
-        raise ValueError(f"不支持的 llm type: {ltype}")
+
+        elif ltype in ('openai', 'openai_compatible'):
+            from docqa.generation.llm_openai import OpenAICompatibleLLM
+            return OpenAICompatibleLLM(
+                model=model,
+                base_url=lcfg.get('base_url', 'https://api.openai.com/v1'),
+                api_key=lcfg.get('api_key', 'sk-placeholder'),
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+
+        raise ValueError(
+            f"不支持的 llm type: {ltype}。"
+            f"支持: ollama | openai | openai_compatible"
+        )

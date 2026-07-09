@@ -3,6 +3,7 @@ models/
 
 # 向量数据库（运行时生成）
 chroma_db/
+chroma_db_eval/
 chroma_ab/
 
 # Python

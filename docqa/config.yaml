@@ -1,5 +1,8 @@
 # DocQA 集中配置
 # 换组件只需改这个文件，不需要动任何代码
+#
+# 快速切换模型：
+#   改 generation.llm 段即可，RAG 管线（摄入+检索）不受影响
 
 # ====== 文档摄入 ======
 ingestion:
@@ -16,7 +19,7 @@ ingestion:
   embedder:
     type: bge-small-zh     # bge-small-zh | bge-m3 | openai
     model_path: models/bge-small-zh-v1.5
-    device: cpu
+    device: cuda             # cuda | cpu (自动检测GPU)
   vector_store:
     type: chromadb         # chromadb | faiss | milvus
     persist_dir: ./chroma_db
@@ -30,11 +33,11 @@ retrieval:
   # 混合检索设置
   hybrid:
     rrf_k: 60
-  # 查询改写
+  # 查询改写（需要 LLM，CPU 上较慢，可关闭）
   query_rewrite:
-    enabled: true           # 启用多查询改写
+    enabled: true           # 启用多查询改写（CPU 建议 false）
     n_variants: 3           # 生成变体数
-  # 重排序
+  # 重排序（对效果提升最大，CPU 上每查询 ~3-5 秒）
   reranker:
     enabled: true
     type: bge-reranker
@@ -42,10 +45,50 @@ retrieval:
     candidate_pool: 50
     output_top_k: 10
 
-# ====== 生成 ======
+# ====== 生成（LLM — 可自由切换后端和模型）======
+
+# ┌─────────────────────────────────────────────────────────┐
+# │ 后端 1: Ollama 本地推理（默认）                         │
+# │   不需 API key，模型本地运行，隐私安全                   │
+# └─────────────────────────────────────────────────────────┘
+# generation:
+#   llm:
+#     type: ollama
+#     model: qwen2.5:7b        # 换模型只改这里: qwen2.5:1.5b | qwen2.5:3b | llama3.2:3b
+#     temperature: 0.1
+#     max_tokens: 1024
+#     timeout: 300
+
+# ┌─────────────────────────────────────────────────────────┐
+# │ 后端 2: OpenAI 兼容 API（当前激活）                      │
+# │   通过 Ollama 的 /v1 端点调用，也可换成任何兼容服务       │
+# └─────────────────────────────────────────────────────────┘
+# generation:
+#   llm:
+#     type: openai              # ollama | openai | openai_compatible
+#     model: qwen2.5:7b
+#     base_url: http://localhost:11434/v1    # Ollama 的 OpenAI 兼容端点
+#     api_key: ollama           # 本地 Ollama 不需要真实 key
+#     temperature: 0.1
+#     max_tokens: 1024
+#     timeout: 300
+
+# ┌─────────────────────────────────────────────────────────┐
+# │ 后端 3: 云端 API（DeepSeek / OpenAI 官方 / 其他）        │
+# └─────────────────────────────────────────────────────────┘
+# generation:
+#   llm:
+#     type: openai
+#     model: deepseek-chat               # 或 gpt-4o-mini / qwen-plus
+#     base_url: https://api.deepseek.com/v1
+#     api_key: sk-your-key-here
+#     temperature: 0.1
+#     max_tokens: 1024
+#     timeout: 300
+
 generation:
   llm:
-    type: ollama            # ollama | openai | deepseek
+    type: ollama
     model: qwen2.5:7b
     temperature: 0.1
     max_tokens: 1024

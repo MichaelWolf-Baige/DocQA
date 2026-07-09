@@ -183,6 +183,45 @@ generation:
 | 重排序 | `retrieval.reranker.enabled` | true |
 | Chunk扩展 | `ingestion.chunk_expansion.enabled` | true |
 
+### LLM 后端切换
+
+RAG 管线与 LLM 完全分离，通过 `config.yaml` 一行切换后端：
+
+```yaml
+# ① Ollama 本地（默认）
+generation:
+  llm:
+    type: ollama
+    model: qwen2.5:7b       # 换模型只改这里
+
+# ② OpenAI 兼容 API（Ollama /v1 / DeepSeek / vLLM ... ）
+generation:
+  llm:
+    type: openai
+    model: deepseek-chat
+    base_url: https://api.deepseek.com/v1
+    api_key: sk-your-key
+
+# ③ CPU 笔记本：用预设配置
+#   pipeline = DocQAPipeline.from_config('docqa/config_cpu.yaml')
+```
+
+### CPU 环境使用
+
+无 GPU 笔记本也能运行。有预设配置 `docqa/config_cpu.yaml`：
+
+```python
+from docqa.pipeline import DocQAPipeline
+pipeline = DocQAPipeline.from_config('docqa/config_cpu.yaml')
+pipeline.ingest('doc.pdf')
+answer = pipeline.ask('你的问题？')
+```
+
+CPU 预设做了以下优化：
+- 关闭查询改写（LLM 改写慢且在有 Reranker 时反而降效果）
+- 推荐 qwen2.5:1.5b（~1GB，CPU 上 10-15 token/s）
+- 保留 Reranker（效果提升最大，CPU 上 3-5s）
+
 ---
 
 ## 依赖
@@ -195,6 +234,7 @@ rank-bm25                # BM25 关键词检索
 jieba                    # 中文分词
 pyyaml                   # 配置管理
 requests                 # Ollama API 调用
+openai                   # OpenAI 兼容后端（可选，用于切换模型）
 numpy, scikit-learn      # 数值计算
 ```
 
@@ -214,19 +254,21 @@ numpy, scikit-learn      # 数值计算
 - ✅ 查询改写（Query Rewriting）
 - ✅ 小→大分块（Small-to-Big Chunking）
 - ✅ 架构解耦重构（模块化+配置集中+可替换接口）
+- ✅ GPU 完整评估（5 种方案对比）
+- ✅ LLM 后端解耦（Ollama / OpenAI 兼容 / 云端 API 自由切换）
+- ✅ CPU 优化预设（config_cpu.yaml，无 GPU 笔记本可运行）
 
 **待做的：**
 - ◻️ 多文档跨域评估（验证泛化能力）
-- ◻️ 完整优化效果对比（需要 GPU 加速评估）
-- ◻️ Streamlit UI 切换到新架构
+- ◻️ 生成质量评估（RAGAS / LLM Judge）
 
-**当前效果：**
+**当前效果（新架构，256chunk）：**
 
-| 指标 | Baseline | 优化后 | 目标 |
+| 指标 | Baseline | +Reranker | 目标 |
 |------|:------:|:------:|:---:|
-| Recall@5 | 64% | 89% | ≥85% ✅ |
-| Recall@10 | 83% | 91% | ≥90% ✅ |
-| MRR | 0.52 | 0.71 | ≥0.75 ⚠️ |
+| Recall@5 | 64% | 83% | ≥85% ⚠️ |
+| Recall@10 | 77% | 90% | ≥90% ✅ |
+| MRR | 0.59 | 0.76 | ≥0.75 ✅ |
 
 ---
 
