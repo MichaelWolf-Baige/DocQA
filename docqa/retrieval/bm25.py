@@ -25,10 +25,19 @@ class BM25Retriever(Retriever):
 
     def build_index(self, chunks: List[Chunk]) -> None:
         """对 chunk 列表构建/重建 BM25 索引"""
+        if not chunks:
+            self.bm25 = None
+            return
         self.chunk_texts = [c.text for c in chunks]
         self.chunk_ids = [c.chunk_id for c in chunks]
-        self.source_files = [c.source_file for c in chunks]
+        self.source_files = [getattr(c, 'source_file', '') for c in chunks]
         self._tokenized_corpus = [self.tokenize(t) for t in self.chunk_texts]
+
+        # 过滤空 token 列表（避免 rank_bm25 的 ZeroDivisionError）
+        if len(self._tokenized_corpus) == 0 or all(len(t) == 0 for t in self._tokenized_corpus):
+            self.bm25 = None
+            return
+
         self.bm25 = BM25Okapi(self._tokenized_corpus)
 
     def search(self, query: str, top_k: int) -> List[Chunk]:
