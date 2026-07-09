@@ -25,12 +25,12 @@ def load_config(path: str = None) -> Dict[str, Any]:
     # 展开 embedder model_path
     model_rel = config.get('ingestion', {}).get('embedder', {}).get('model_path', '')
     if model_rel and not os.path.isabs(model_rel):
-        config['ingestion']['embedder']['model_path'] = os.path.join(project_root, model_rel)
+        config['ingestion']['embedder']['model_path'] = os.path.normpath(os.path.join(project_root, model_rel))
 
     # 展开 vector_store persist_dir
     persist_rel = config.get('ingestion', {}).get('vector_store', {}).get('persist_dir', '')
     if persist_rel and not os.path.isabs(persist_rel):
-        config['ingestion']['vector_store']['persist_dir'] = os.path.join(project_root, persist_rel)
+        config['ingestion']['vector_store']['persist_dir'] = os.path.normpath(os.path.join(project_root, persist_rel))
 
     return config
 

@@ -6,7 +6,7 @@ import torch
 
 st.set_page_config(page_title="DocQA", page_icon="📄")
 
-for key, default in [("pipe", None), ("ready", False), ("msgs", []), ("_ingested_names", set())]:
+for key, default in [("pipe", None), ("ready", False), ("msgs", []), ("_names", set())]:
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -18,10 +18,9 @@ with st.sidebar:
         index=0 if torch.cuda.is_available() else 1)
     files = st.file_uploader("上传 PDF", "pdf", accept_multiple_files=True)
 
-    # 上传后自动建立索引
     if files:
         new_names = {f.name for f in files}
-        if new_names != st.session_state._ingested_names:
+        if new_names != st.session_state._names:
             from docqa.config import load_config
             from docqa.pipeline import DocQAPipeline
             cfg = load_config()
@@ -50,7 +49,7 @@ with st.sidebar:
                     os.unlink(tmp.name)
             st.session_state.ready = True
             st.session_state.msgs = []
-            st.session_state._ingested_names = new_names
+            st.session_state._names = new_names
 
     if st.session_state.ready:
         cnt = st.session_state.pipe.vector_store.count() if st.session_state.pipe else 0

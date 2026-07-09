@@ -22,7 +22,7 @@ ingestion:
     device: cuda             # cuda | cpu (自动检测GPU)
   vector_store:
     type: chromadb         # chromadb | faiss | milvus
-    persist_dir: ./chroma_db
+    persist_dir: chroma_db
     collection_name: docqa
     distance_metric: cosine
 

@@ -31,7 +31,7 @@ ingestion:
     device: cpu              # ★ CPU 模式
   vector_store:
     type: chromadb
-    persist_dir: ./chroma_db
+    persist_dir: chroma_db
     collection_name: docqa
     distance_metric: cosine
 

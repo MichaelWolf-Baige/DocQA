@@ -359,7 +359,7 @@ class DocQAPipeline:
         if vtype == 'chromadb':
             from docqa.ingestion.store import ChromaStore
             return ChromaStore(
-                persist_dir=vcfg.get('persist_dir', './chroma_db'),
+                persist_dir=vcfg.get('persist_dir', 'chroma_db'),
                 collection_name=vcfg.get('collection_name', 'docqa'),
             )
         raise ValueError(f"不支持的 vector_store type: {vtype}")

@@ -9,7 +9,7 @@ from .base import VectorStore, Chunk
 class ChromaStore(VectorStore):
     """ChromaDB 向量存储（cosine 距离，支持多文档追加）"""
 
-    def __init__(self, persist_dir: str = './chroma_db', collection_name: str = 'docqa'):
+    def __init__(self, persist_dir: str = 'chroma_db', collection_name: str = 'docqa'):
         self.persist_dir = persist_dir
         self.collection_name = collection_name
         self.client = chromadb.PersistentClient(path=persist_dir)
