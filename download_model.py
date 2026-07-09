@@ -25,4 +25,4 @@ if __name__ == '__main__':
     # 验证
     model = SentenceTransformer(LOCAL_DIR, device='cpu')
     dim = model.get_sentence_embedding_dimension()
-    print(f'✓ 模型加载成功，向量维度: {dim}')
+    print(f'[OK] model loaded, dim={dim}')

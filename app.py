@@ -1,110 +1,88 @@
-"""DocQA Streamlit 前端 — 上传 PDF → 问答"""
+"""DocQA"""
 import os, sys, tempfile
 import streamlit as st
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import torch
-from docqa.pipeline import DocQAPipeline
 
-st.set_page_config(page_title="DocQA", page_icon="📄", layout="wide")
+st.set_page_config(page_title="DocQA", page_icon="📄")
 
-# ── 初始化 ──
-for key, val in [
-    ("pipeline", None), ("messages", []), ("files_done", False),
-    ("chunk_count", 0), ("show_chunks", False),
-]:
-    if key not in st.session_state:
-        st.session_state[key] = val
+if "pipe" not in st.session_state:
+    st.session_state.pipe = None
+if "ready" not in st.session_state:
+    st.session_state.ready = False
+if "msgs" not in st.session_state:
+    st.session_state.msgs = []
 
 # ── 侧边栏 ──
 with st.sidebar:
-    st.header("📁 文档")
-    uploaded = st.file_uploader("上传 PDF（可多选）", "pdf", accept_multiple_files=True)
+    st.header("配置")
 
-    if uploaded and st.button("🔨 建立索引", use_container_width=True):
-        # 保存临时文件
-        tmp_paths = []
-        for f in uploaded:
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-            tmp.write(f.getbuffer())
-            tmp_paths.append(tmp.name)
+    model_name = st.selectbox("LLM 模型", ["qwen2.5:1.5b", "qwen2.5:7b"], index=0)
+    device = st.selectbox("Embedding 设备",
+        ["cuda", "cpu"],
+        index=0 if torch.cuda.is_available() else 1)
 
-        # 构建 pipeline
-        st.session_state.pipeline = DocQAPipeline.from_config()
-        p = st.session_state.pipeline
+    files = st.file_uploader("上传 PDF", "pdf", accept_multiple_files=True)
 
-        with st.spinner("正在解析 + 向量化..."):
-            total = 0
-            for i, path in enumerate(tmp_paths):
-                n = p.ingest(path, clear=(i == 0))
-                total += n
-                os.unlink(path)
+    if st.button("建立索引", use_container_width=True) and files:
+        from docqa.config import load_config
+        from docqa.pipeline import DocQAPipeline
 
-        st.session_state.chunk_count = total
-        st.session_state.files_done = True
-        st.session_state.messages = []
+        # 写临时 config 覆盖 device 和 model
+        cfg = load_config()
+        cfg["ingestion"]["embedder"]["device"] = device
+        cfg["generation"]["llm"]["model"] = model_name
+
+        with st.spinner("加载模型中..."):
+            p = DocQAPipeline(
+                parser=DocQAPipeline._build_parser(cfg),
+                chunker=DocQAPipeline._build_chunker(cfg),
+                embedder=DocQAPipeline._build_embedder(cfg),
+                vector_store=DocQAPipeline._build_vector_store(cfg),
+                retriever=None,
+                reranker=DocQAPipeline._build_reranker(cfg),
+                prompt_builder=DocQAPipeline._build_prompt_builder(cfg),
+                llm=DocQAPipeline._build_llm(cfg),
+                use_multi_query=cfg.get("retrieval", {}).get("query_rewrite", {}).get("enabled", False),
+                use_chunk_expansion=cfg.get("ingestion", {}).get("chunk_expansion", {}).get("enabled", False),
+            )
+            st.session_state.pipe = p
+
+        with st.spinner("处理文档..."):
+            for i, f in enumerate(files):
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                tmp.write(f.getbuffer())
+                tmp.close()
+                p.ingest(tmp.name, clear=(i == 0))
+                os.unlink(tmp.name)
+
+        st.session_state.ready = True
+        st.session_state.msgs = []
         st.rerun()
 
-    if st.session_state.files_done:
-        st.success(f"已索引 {st.session_state.chunk_count} 个片段")
-        for f in (uploaded or []):
-            st.caption(f"📄 {f.name}")
-
-    st.divider()
-
-    dev = "GPU" if torch.cuda.is_available() else "CPU"
-    st.caption(f"🔧 Embedding & Reranker: **{dev}**")
-    st.caption(f"🤖 LLM: **qwen2.5:7b** (Ollama)")
-
-    st.divider()
-    st.session_state.show_chunks = st.checkbox("🔍 显示检索到的片段", value=st.session_state.show_chunks)
-
-    if st.button("🗑 清空对话", use_container_width=True):
-        st.session_state.messages = []
+    if st.session_state.ready:
+        cnt = st.session_state.pipe.vector_store.count() if st.session_state.pipe else 0
+        st.success(f"已就绪 — {cnt} 片段")
 
 # ── 主界面 ──
-st.title("📄 DocQA — 文档智能问答")
+st.title("📄 DocQA")
 
-if not st.session_state.files_done:
-    st.info("👈 上传 PDF → 点击「建立索引」开始")
+if not st.session_state.ready:
+    st.info("上传 PDF 后点击「建立索引」")
+    st.stop()
 
-# 对话历史
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+for m in st.session_state.msgs:
+    with st.chat_message(m["role"]):
+        st.write(m["content"])
 
-# 输入
-if prompt := st.chat_input("输入问题..."):
-    p = st.session_state.pipeline
-    if p is None:
-        st.error("请先上传文档并建立索引")
-    else:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+if q := st.chat_input("输入问题"):
+    st.session_state.msgs.append({"role": "user", "content": q})
+    with st.chat_message("user"):
+        st.write(q)
 
-        with st.chat_message("assistant"):
-            with st.spinner("检索中..."):
-                chunks = p.retrieve(prompt, top_k=10)
+    with st.chat_message("assistant"):
+        with st.spinner("..."):
+            ans = st.session_state.pipe.ask(q)
+        st.write(ans)
 
-            with st.spinner("生成回答..."):
-                answer = p.ask(prompt)
-
-            st.markdown(answer)
-
-            # 来源
-            if chunks:
-                srcs = sorted(set(f"{c.source_file or 'PDF'} p{c.source_page}" for c in chunks[:5]))
-                st.caption("📖 " + " | ".join(srcs))
-
-            # 检索片段
-            if st.session_state.show_chunks:
-                with st.expander("🔍 命中的片段", expanded=False):
-                    for i, c in enumerate(chunks[:10]):
-                        s = c.metadata.get("rerank_score") or c.metadata.get("score", 0)
-                        st.markdown(f"**#{i+1}** `{c.source_file}` p{c.source_page} — score `{s:.4f}`")
-                        st.text(c.text[:250] + ("..." if len(c.text) > 250 else ""))
-                        if i < min(len(chunks), 10) - 1:
-                            st.divider()
-
-        st.session_state.messages.append({"role": "assistant", "content": answer})
+    st.session_state.msgs.append({"role": "assistant", "content": ans})
