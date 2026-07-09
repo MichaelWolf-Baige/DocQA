@@ -17,7 +17,11 @@ class RAGPromptBuilder(PromptBuilder):
     def build(self, query: str, chunks: List[Chunk]) -> str:
         context_parts = []
         for c in chunks:
-            part = f'[第{c.source_page}页] {c.text}'
+            # 多文档时显示来源文件名
+            if c.source_file:
+                part = f'[{c.source_file} 第{c.source_page}页] {c.text}'
+            else:
+                part = f'[第{c.source_page}页] {c.text}'
             context_parts.append(part)
 
         context = '\n\n'.join(context_parts)

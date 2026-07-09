@@ -22,6 +22,7 @@ class SentenceChunker(Chunker):
         chunk_id = 0
 
         for page in pages:
+            source_file = page.metadata.get('source_file', '')
             sentences = self._split_sentences(page.text)
             current = ''
 
@@ -31,6 +32,7 @@ class SentenceChunker(Chunker):
                         chunk_id=chunk_id,
                         text=current.strip(),
                         source_page=page.page_number,
+                        source_file=source_file,
                     ))
                     chunk_id += 1
 
@@ -50,6 +52,7 @@ class SentenceChunker(Chunker):
                     chunk_id=chunk_id,
                     text=current.strip(),
                     source_page=page.page_number,
+                    source_file=source_file,
                 ))
                 chunk_id += 1
 

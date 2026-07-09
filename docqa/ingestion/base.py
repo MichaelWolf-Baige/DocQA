@@ -24,6 +24,7 @@ class Chunk:
     chunk_id: int
     text: str
     source_page: int
+    source_file: str = ""            # 来源文件名，多文档场景下必备
     embedding: Optional[List[float]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -63,9 +64,19 @@ class Embedder(ABC):
 class VectorStore(ABC):
     """向量存储：写入 + 向量检索"""
     @abstractmethod
-    def index(self, chunks: List[Chunk]) -> None:
-        """将 chunk 写入向量库（覆盖旧数据）"""
+    def add(self, chunks: List[Chunk]) -> None:
+        """追加 chunks 到向量库（保留已有数据，按 source_file+chunk_id 去重）"""
         ...
+
+    @abstractmethod
+    def clear(self) -> None:
+        """清空全部数据"""
+        ...
+
+    def index(self, chunks: List[Chunk]) -> None:
+        """兼容旧 API：先清空再写入"""
+        self.clear()
+        self.add(chunks)
 
     @abstractmethod
     def search(self, query_vec: List[float], top_k: int) -> List[Chunk]:

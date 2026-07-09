@@ -111,11 +111,22 @@ class DocQAPipeline:
 
     # ====== 摄入管线 ======
 
-    def ingest(self, pdf_path: str) -> int:
+    def ingest(self, pdf_path, clear: bool = True) -> int:
         """
-        执行完整摄入流程: parse → chunk → embed → store
-        返回 chunk 数量
+        摄入文档: parse → chunk → embed → store → [rebuild BM25]
+
+        参数:
+          pdf_path : str | List[str] | 目录路径
+            单个 PDF、PDF 路径列表、或包含 .pdf 文件的目录
+          clear : bool
+            True: 清空旧数据后重新摄入
+            False: 追加到已有索引
+
+        返回: 总 chunk 数量
         """
+        import os as _os
+        import glob
+
         if self.parser is None:
             raise RuntimeError("Parser 未设置")
         if self.chunker is None:
@@ -125,30 +136,66 @@ class DocQAPipeline:
         if self.vector_store is None:
             raise RuntimeError("VectorStore 未设置")
 
-        # Step 1: 解析
-        pages = self.parser.parse(pdf_path)
-        if not pages:
-            raise ValueError(f"PDF 解析结果为空: {pdf_path}")
+        # 解析输入：统一为文件列表
+        if isinstance(pdf_path, str):
+            if _os.path.isdir(pdf_path):
+                files = sorted(glob.glob(_os.path.join(pdf_path, '*.pdf')))
+                if not files:
+                    raise ValueError(f"目录中没有 PDF 文件: {pdf_path}")
+            else:
+                files = [pdf_path]
+        elif isinstance(pdf_path, (list, tuple)):
+            files = list(pdf_path)
+        else:
+            raise TypeError(f"pdf_path 类型不支持: {type(pdf_path)}")
 
-        # Step 2: 分块
-        chunks = self.chunker.chunk(pages)
+        # 清空
+        if clear:
+            self.vector_store.clear()
+            self._all_chunks = []
+            self.retriever = None
 
-        # Step 3: 嵌入
-        chunks = self.embedder.embed_chunks(chunks)
+        total_count = 0
 
-        # Step 4: 存储
-        self.vector_store.index(chunks)
-        self._all_chunks = chunks
+        for fpath in files:
+            if not _os.path.exists(fpath):
+                print(f"  [WARN] 文件不存在，跳过: {fpath}")
+                continue
 
-        # Step 5: 如果 retriever 需要 BM25 索引，在这里构建
-        # (retriever 可能是在 ingest 之前注入的，也可能在之后)
-        self._ensure_retriever(chunks)
+            # Step 1: 解析
+            pages = self.parser.parse(fpath)
+            if not pages:
+                print(f"  [WARN] 解析结果为空: {fpath}")
+                continue
 
-        return len(chunks)
+            # Step 2: 分块
+            chunks = self.chunker.chunk(pages)
 
-    def _ensure_retriever(self, chunks: List[Chunk]) -> None:
-        """确保 retriever 和可选特性（多查询、chunk扩展）已构建"""
-        if self.retriever is None:
+            # Step 3: 嵌入
+            chunks = self.embedder.embed_chunks(chunks)
+
+            # Step 4: 追加到向量库
+            self.vector_store.add(chunks)
+            self._all_chunks.extend(chunks)
+
+            fname = _os.path.basename(fpath)
+            print(f"  {fname}: {len(chunks)} chunks ({len(pages)} pages)")
+            total_count += len(chunks)
+
+        # Step 5: 重建 _all_chunks（从向量库获取，保证去重）
+        self._all_chunks = self.vector_store.get_all_chunks()
+
+        # Step 6: 重建 BM25 索引（基于全部 chunk）
+        self._ensure_retriever()
+
+        return total_count
+
+    def _ensure_retriever(self) -> None:
+        """确保 retriever（含 BM25 索引）基于全部 _all_chunks 构建"""
+        # 如果 retriever 已存在且当前非 bm25-only 模式，只需更新 BM25
+        needs_rebuild = (self.retriever is None)
+
+        if needs_rebuild:
             cfg = load_config()
             mode = cfg.get('retrieval', {}).get('mode', 'hybrid')
             if mode == 'hybrid':
@@ -159,7 +206,7 @@ class DocQAPipeline:
                     embedder=self.embedder,
                     rrf_k=rrf_k,
                 )
-                base.build_bm25_index(chunks)
+                base.build_bm25_index(self._all_chunks)
                 self.retriever = base
             elif mode == 'dense':
                 from docqa.retrieval.dense import DenseRetriever
@@ -167,7 +214,11 @@ class DocQAPipeline:
             elif mode == 'bm25':
                 from docqa.retrieval.bm25 import BM25Retriever
                 self.retriever = BM25Retriever()
-                self.retriever.build_index(chunks)
+                self.retriever.build_index(self._all_chunks)
+        else:
+            # Hybrid 模式：更新 BM25 历史 corpse
+            if hasattr(self.retriever, 'build_bm25_index'):
+                self.retriever.build_bm25_index(self._all_chunks)
 
         # 可选：查询改写（包装在 retriever 外层）
         if self.use_multi_query and self.query_rewriter is None and self.llm is not None:
@@ -179,7 +230,7 @@ class DocQAPipeline:
         # 可选：chunk 扩展
         if self.use_chunk_expansion and self.chunk_expander is None:
             from docqa.retrieval.chunk_expander import ChunkExpander
-            self.chunk_expander = ChunkExpander(chunks)
+            self.chunk_expander = ChunkExpander(self._all_chunks)
 
     # ====== 查询管线 ======
 

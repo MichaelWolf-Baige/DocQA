@@ -16,6 +16,7 @@ class BM25Retriever(Retriever):
         self.bm25 = None
         self.chunk_texts: List[str] = []
         self.chunk_ids: List[int] = []
+        self.source_files: List[str] = []
         self._tokenized_corpus: List[List[str]] = []
 
     @staticmethod
@@ -23,9 +24,10 @@ class BM25Retriever(Retriever):
         return [t for t in jieba.cut(text) if t.strip()]
 
     def build_index(self, chunks: List[Chunk]) -> None:
-        """对 chunk 列表构建 BM25 索引"""
+        """对 chunk 列表构建/重建 BM25 索引"""
         self.chunk_texts = [c.text for c in chunks]
         self.chunk_ids = [c.chunk_id for c in chunks]
+        self.source_files = [c.source_file for c in chunks]
         self._tokenized_corpus = [self.tokenize(t) for t in self.chunk_texts]
         self.bm25 = BM25Okapi(self._tokenized_corpus)
 
@@ -44,9 +46,10 @@ class BM25Retriever(Retriever):
         for idx in top_indices:
             if scores[idx] > 0:
                 results.append(Chunk(
-                    chunk_id=self.chunk_ids[idx],
-                    text=self.chunk_texts[idx],
-                    source_page=-1,  # BM25 不关心页码
+                    chunk_id=self.chunk_ids[idx] if idx < len(self.chunk_ids) else -1,
+                    text=self.chunk_texts[idx] if idx < len(self.chunk_texts) else '',
+                    source_page=-1,
+                    source_file=self.source_files[idx] if idx < len(self.source_files) else '',
                     metadata={'score': round(float(scores[idx]), 4)}
                 ))
         return results
