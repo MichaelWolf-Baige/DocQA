@@ -1,79 +1,65 @@
-"""DocQA"""
-import os, sys, tempfile
 import streamlit as st
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import torch
+from main_part.pdf_parser import extract_text
+from main_part.chunker import chunk_by_size
+from main_part.embedder import Embedder
+from main_part.retriever import Retriever
+from main_part.prompt_builder import build_rag_prompt
+from main_part.generator import generate_answer
 
-st.set_page_config(page_title="DocQA", page_icon="📄")
+PDF_PATH = 'uploaded.pdf'
 
-for key, default in [("pipe", None), ("ready", False), ("msgs", []), ("_names", set())]:
-    if key not in st.session_state:
-        st.session_state[key] = default
+st.set_page_config(page_title='DocQA', page_icon='📄')
+st.title('DocQA - 文档智能问答')
 
-# ── 侧边栏 ──
+# --- 左侧栏：上传文档 ---
 with st.sidebar:
-    st.header("配置")
-    model_name = st.selectbox("LLM 模型", ["qwen2.5:1.5b", "qwen2.5:7b"], index=0)
-    device = st.selectbox("Embedding 设备", ["cuda", "cpu"],
-        index=0 if torch.cuda.is_available() else 1)
-    files = st.file_uploader("上传 PDF", "pdf", accept_multiple_files=True)
+    st.header('📁 上传文档')
+    uploaded = st.file_uploader('选择PDF文件', type='pdf')
 
-    if files:
-        new_names = {f.name for f in files}
-        if new_names != st.session_state._names:
-            from docqa.config import load_config
-            from docqa.pipeline import DocQAPipeline
-            cfg = load_config()
-            cfg["ingestion"]["embedder"]["device"] = device
-            cfg["generation"]["llm"]["model"] = model_name
-            with st.spinner("加载模型 + 处理文档..."):
-                p = DocQAPipeline(
-                    parser=DocQAPipeline._build_parser(cfg),
-                    chunker=DocQAPipeline._build_chunker(cfg),
-                    embedder=DocQAPipeline._build_embedder(cfg),
-                    vector_store=DocQAPipeline._build_vector_store(cfg),
-                    retriever=None,
-                    reranker=DocQAPipeline._build_reranker(cfg),
-                    prompt_builder=DocQAPipeline._build_prompt_builder(cfg),
-                    llm=DocQAPipeline._build_llm(cfg),
-                    use_multi_query=cfg["retrieval"]["query_rewrite"]["enabled"],
-                    use_chunk_expansion=cfg["ingestion"]["chunk_expansion"]["enabled"],
-                )
-                st.session_state.pipe = p
-                total = 0
-                for i, f in enumerate(files):
-                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                    tmp.write(f.getbuffer())
-                    tmp.close()
-                    total += p.ingest(tmp.name, clear=(i == 0))
-                    os.unlink(tmp.name)
-            st.session_state.ready = True
-            st.session_state.msgs = []
-            st.session_state._names = new_names
+    if uploaded:
+        with open(PDF_PATH, 'wb') as f:
+            f.write(uploaded.read())
 
-    if st.session_state.ready:
-        cnt = st.session_state.pipe.vector_store.count() if st.session_state.pipe else 0
-        st.success(f"就绪 — {cnt} 片段")
+        with st.spinner('正在解析文档...'):
+            if 'embedder' not in st.session_state:
+                st.session_state.embedder = Embedder()
 
-# ── 主界面 ──
-st.title("📄 DocQA")
+            pages = extract_text(PDF_PATH)
+            chunks = chunk_by_size(pages)
+            chunks = st.session_state.embedder.embed_chunks(chunks)
 
-if st.session_state.ready:
-    for m in st.session_state.msgs:
-        with st.chat_message(m["role"]):
-            st.write(m["content"])
-else:
-    st.info("上传 PDF，自动建立索引")
+            retriever = Retriever()
+            retriever.index_chunks(chunks)
+            st.session_state.retriever = retriever
+            st.session_state.chunks = chunks
 
-if q := st.chat_input("输入问题" if st.session_state.ready else "请先上传 PDF"):
-    if not st.session_state.ready:
-        st.warning("请先在侧边栏上传 PDF")
+        st.success(f'已就绪，{len(st.session_state.chunks)} 个段落')
+
+# --- 对话历史 ---
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg['role']):
+        st.markdown(msg['content'])
+
+# --- 输入框 ---
+if question := st.chat_input('输入你的问题...'):
+    st.session_state.messages.append({'role': 'user', 'content': question})
+    with st.chat_message('user'):
+        st.markdown(question)
+
+    if 'retriever' not in st.session_state:
+        st.error('请先上传PDF文档')
     else:
-        st.session_state.msgs.append({"role": "user", "content": q})
-        with st.chat_message("user"):
-            st.write(q)
-        with st.chat_message("assistant"):
-            with st.spinner("..."):
-                ans = st.session_state.pipe.ask(q)
-            st.write(ans)
-        st.session_state.msgs.append({"role": "assistant", "content": ans})
+        with st.spinner('检索中...'):
+            results = st.session_state.retriever.search(
+                question, st.session_state.embedder, top_k=10
+            )
+            prompt = build_rag_prompt(question, results)
+        with st.spinner('生成回答中...'):
+            answer = generate_answer(prompt)
+
+        st.session_state.messages.append({'role': 'assistant', 'content': answer})
+        with st.chat_message('assistant'):
+            st.markdown(answer)
