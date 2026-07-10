@@ -45,20 +45,29 @@ class BM25Retriever(Retriever):
             return []
 
         tokens = self.tokenize(query)
-        scores = self.bm25.get_scores(tokens)
-        max_score = scores.max()
-        if max_score > 0:
-            scores = scores / max_score
+        if not tokens:
+            return []
 
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        scores = self.bm25.get_scores(tokens)
+        if len(scores) == 0 or scores.max() <= 0:
+            return []
+
+        # 归一化到 [0,1]
+        max_score = scores.max()
+        scores = scores / max_score
+
+        top_indices = np.argsort(scores)[::-1]
         results = []
         for idx in top_indices:
-            if scores[idx] > 0:
-                results.append(Chunk(
-                    chunk_id=self.chunk_ids[idx] if idx < len(self.chunk_ids) else -1,
-                    text=self.chunk_texts[idx] if idx < len(self.chunk_texts) else '',
-                    source_page=-1,
-                    source_file=self.source_files[idx] if idx < len(self.source_files) else '',
-                    metadata={'score': round(float(scores[idx]), 4)}
-                ))
+            if len(results) >= top_k:
+                break
+            if scores[idx] <= 0:
+                break
+            results.append(Chunk(
+                chunk_id=self.chunk_ids[idx],
+                text=self.chunk_texts[idx],
+                source_page=-1,
+                source_file=self.source_files[idx] if idx < len(self.source_files) else '',
+                metadata={'score': round(float(scores[idx]), 4)}
+            ))
         return results

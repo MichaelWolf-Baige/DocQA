@@ -108,23 +108,30 @@ with st.sidebar:
     # ── 摄入新文件 ──
     if new_pdfs:
         with st.spinner(f'正在解析 {len(new_pdfs)} 个新文件…'):
-            if st.session_state.pipeline is None:
-                pipeline = DocQAPipeline.from_config(CONFIG_PATH)
-                pipeline.llm.model = model
-                pipeline.ingest(new_pdfs, clear=True)
+            try:
+                if st.session_state.pipeline is None:
+                    pipeline = DocQAPipeline.from_config(CONFIG_PATH)
+                    pipeline.llm.model = model
+                    pipeline.ingest(new_pdfs, clear=True)
+                else:
+                    pipeline = st.session_state.pipeline
+                    pipeline.llm.model = model
+                    pipeline.ingest(new_pdfs, clear=False)
+
+                # 成功后才更新状态，避免磁盘与 session 不一致
+                for fp in new_pdfs:
+                    fname = os.path.basename(fp)
+                    count = len([c for c in pipeline._all_chunks
+                                 if getattr(c, 'source_file', '') == fname])
+                    st.session_state.ingested_files[fname] = count
                 st.session_state.pipeline = pipeline
-            else:
-                pipeline = st.session_state.pipeline
-                pipeline.llm.model = model
-                pipeline.ingest(new_pdfs, clear=False)
-
-            for fp in new_pdfs:
-                fname = os.path.basename(fp)
-                # 统计该文件的 chunk 数（从 pipeline 内部取）
-                count = len([c for c in pipeline._all_chunks if c.source_file == fname])
-                st.session_state.ingested_files[fname] = count
-            st.session_state.total_chunks = pipeline.vector_store.count()
-
+                st.session_state.total_chunks = pipeline.vector_store.count()
+            except Exception as e:
+                st.error(f'解析失败: {e}')
+                # 删除已写入但未索引的文件
+                for fp in new_pdfs:
+                    if os.path.exists(fp):
+                        os.remove(fp)
         st.rerun()
 
     if skipped:

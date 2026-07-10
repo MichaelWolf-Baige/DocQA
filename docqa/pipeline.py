@@ -90,13 +90,10 @@ class DocQAPipeline:
         cfg = load_config(config_path)
         rcfg = cfg.get('retrieval', {})
 
-        # 查询改写
         use_mq = rcfg.get('query_rewrite', {}).get('enabled', False)
-
-        # chunk 扩展
         use_expand = cfg.get('ingestion', {}).get('chunk_expansion', {}).get('enabled', False)
 
-        return cls(
+        pipeline = cls(
             parser=cls._build_parser(cfg),
             chunker=cls._build_chunker(cfg),
             embedder=cls._build_embedder(cfg),
@@ -108,6 +105,8 @@ class DocQAPipeline:
             use_multi_query=use_mq,
             use_chunk_expansion=use_expand,
         )
+        pipeline._cfg = cfg  # 缓存配置，避免 retrieve() 热路径反复读 YAML
+        return pipeline
 
     # ====== 摄入管线 ======
 
@@ -192,11 +191,10 @@ class DocQAPipeline:
 
     def _ensure_retriever(self) -> None:
         """确保 retriever（含 BM25 索引）基于全部 _all_chunks 构建"""
-        # 如果 retriever 已存在且当前非 bm25-only 模式，只需更新 BM25
         needs_rebuild = (self.retriever is None)
 
         if needs_rebuild:
-            cfg = load_config()
+            cfg = self._cfg if hasattr(self, '_cfg') else load_config()
             mode = cfg.get('retrieval', {}).get('mode', 'hybrid')
             if mode == 'hybrid':
                 from docqa.retrieval.hybrid import HybridRetriever
@@ -240,26 +238,24 @@ class DocQAPipeline:
 
         流程（按配置）：
           query → [改写] → retriever.search → [重排序] → [chunk扩展] → chunks
-
-        多查询模式下，重排序使用每个候选 chunk 在任意变体下的最高分，
-        避免 reranker 因原始查询语义不匹配而误杀正确结果。
         """
         if self.retriever is None:
             raise RuntimeError("Retriever 未设置。请先 ingest() 或手动注入 retriever。")
 
-        if top_k is None:
-            top_k = load_config().get('retrieval', {}).get('top_k', 10)
+        cfg = self._cfg if hasattr(self, '_cfg') else load_config()
 
-        cfg = load_config().get('retrieval', {})
-        rerank_enabled = cfg.get('reranker', {}).get('enabled', False)
+        if top_k is None:
+            top_k = cfg.get('retrieval', {}).get('top_k', 10)
+
+        rcfg = cfg.get('retrieval', {})
+        rerank_enabled = rcfg.get('reranker', {}).get('enabled', False)
 
         # Step 1: 检索（可能包含多查询改写）
+        candidate_pool = rcfg.get('reranker', {}).get('candidate_pool', 50)
         if self.use_multi_query and self.retriever is not None:
-            candidate_pool = cfg.get('reranker', {}).get('candidate_pool', 50)
             max_k = max(candidate_pool, top_k) if rerank_enabled else top_k
             candidates = self.retriever.search(query, max_k)
         elif rerank_enabled and self.reranker is not None:
-            candidate_pool = cfg.get('reranker', {}).get('candidate_pool', 50)
             candidates = self.retriever.search(query, candidate_pool)
         else:
             candidates = self.retriever.search(query, top_k)
