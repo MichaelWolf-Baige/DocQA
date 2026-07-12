@@ -10,16 +10,16 @@ ingestion:
     type: pymupdf          # pymupdf | pdfplumber | marker
   chunker:
     type: sentence         # sentence | fixed | recursive
-    chunk_size: 256         # 小块便于精准检索
-    overlap: 64             # overlap = 25% chunk_size
+    chunk_size: 512         # 小块便于精准检索
+    overlap: 128             # overlap = 25% chunk_size
   # chunk 上下文扩展 (small-to-big)
   chunk_expansion:
-    enabled: true           # 检索到小块后，拉取前后相邻chunk拼成大块给LLM
+    enabled: false           # 检索到小块后，拉取前后相邻chunk拼成大块给LLM
     window: 1               # 前后各取1个相邻chunk
   embedder:
     type: bge-small-zh     # bge-small-zh | bge-m3 | openai
     model_path: models/bge-small-zh-v1.5
-    device: cuda             # cuda | cpu (自动检测GPU)
+    device: cpu              # cpu | cuda
   vector_store:
     type: chromadb         # chromadb | faiss | milvus
     persist_dir: chroma_db
@@ -35,11 +35,11 @@ retrieval:
     rrf_k: 60
   # 查询改写（需要 LLM，CPU 上较慢，可关闭）
   query_rewrite:
-    enabled: true           # 启用多查询改写（CPU 建议 false）
+    enabled: false           # 启用多查询改写（CPU 建议 false）
     n_variants: 3           # 生成变体数
   # 重排序（对效果提升最大，CPU 上每查询 ~3-5 秒）
   reranker:
-    enabled: true
+    enabled: false
     type: bge-reranker
     model: BAAI/bge-reranker-v2-m3
     candidate_pool: 50

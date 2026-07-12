@@ -17,7 +17,7 @@ def chunk_by_size(pages, chunk_size=512, overlap=128):
         sentences = _split_sentences(text)
 
         current = ''
-        for sent in sentences:
+        for sent_idx, sent in enumerate(sentences):
             if len(current) + len(sent) > chunk_size and current:
                 chunks.append({
                     'chunk_id': chunk_id,
@@ -25,9 +25,9 @@ def chunk_by_size(pages, chunk_size=512, overlap=128):
                     'source_page': page_num,
                 })
                 chunk_id += 1
-                # 保留最后几个句子做overlap
+                # 保留最后几个句子做overlap（用显式索引，避免重复句子导致 .index() 误匹配）
                 tail = ''
-                for s in reversed(sentences[:sentences.index(sent)]):
+                for s in reversed(sentences[:sent_idx]):
                     if len(tail) + len(s) <= overlap:
                         tail = s + tail
                     else:
