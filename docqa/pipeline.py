@@ -213,6 +213,17 @@ class DocQAPipeline:
                 from docqa.retrieval.bm25 import BM25Retriever
                 self.retriever = BM25Retriever()
                 self.retriever.build_index(self._all_chunks)
+            elif mode == 'hyde':
+                from docqa.retrieval.hyde import HyDERetriever
+                if self.llm is None:
+                    raise RuntimeError("HyDE 模式需要 LLM 来生成假设文档，但 generation.llm 未配置")
+                hcfg = cfg.get('retrieval', {}).get('hyde', {})
+                self.retriever = HyDERetriever(
+                    vector_store=self.vector_store,
+                    embedder=self.embedder,
+                    generate_fn=self.llm.generate,
+                    fallback_to_query=hcfg.get('fallback_to_query', True),
+                )
         else:
             # Hybrid 模式：更新 BM25 历史 corpse
             if hasattr(self.retriever, 'build_bm25_index'):
@@ -239,6 +250,12 @@ class DocQAPipeline:
         流程（按配置）：
           query → [改写] → retriever.search → [重排序] → [chunk扩展] → chunks
         """
+        # 懒构造：索引已存在但 retriever 尚未构建时（如 from_config 后命中已有 chroma_db），
+        # 从向量库回填 _all_chunks 并按配置构建 retriever，避免调用方必须先 ingest()。
+        if self.retriever is None and self.vector_store is not None and self.vector_store.count() > 0:
+            self._all_chunks = self.vector_store.get_all_chunks()
+            self._ensure_retriever()
+
         if self.retriever is None:
             raise RuntimeError("Retriever 未设置。请先 ingest() 或手动注入 retriever。")
 

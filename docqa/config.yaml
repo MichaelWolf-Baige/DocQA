@@ -28,11 +28,17 @@ ingestion:
 
 # ====== 检索 ======
 retrieval:
-  mode: hybrid             # dense | bm25 | hybrid
+  mode: hybrid             # dense | bm25 | hybrid | hyde
   top_k: 10
   # 混合检索设置
   hybrid:
     rrf_k: 60
+  # HyDE 设置（Hypothetical Document Embeddings）
+  # 用 LLM 先生成假设答案文档，再用该文档的向量去检索真实语料库
+  # 需要 LLM 可用；对精确匹配类查询（编号/人名）反而不利，推荐用于抽象/语义类查询
+  hyde:
+    enabled: false
+    fallback_to_query: true   # LLM 生成失败时回退为用原 query 检索
   # 查询改写（需要 LLM，CPU 上较慢，可关闭）
   query_rewrite:
     enabled: false           # 启用多查询改写（CPU 建议 false）

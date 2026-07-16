@@ -1,96 +1,29 @@
 """
 检索层评估指标
 ==============
-不需要 LLM judge，纯数值计算。
-每个指标都有清晰的公式注释，方便理解原理。
+数学定义委托给 docqa.evaluation.metrics（单一真源），避免两处实现漂移。
+
+本模块额外保留 compute_all_metrics：
+  - 接收一个宽松签名的 search_fn（兼容 eval.adapters.dict_search_fn 的三参历史调用）
+  - 返回项既可以是旧式 dict，也可以是新架构 Chunk 对象
 """
-
 import numpy as np
-from typing import List, Dict, Set
+from typing import List, Dict
 
-
-def recall_at_k(retrieved_ids: List[int], relevant_ids: Set[int], k: int) -> float:
-    """
-    Recall@k = |top-k中相关的| / |所有相关的|
-
-    衡量：检索是否"找全了"？
-    示例：文档有 5 个相关 chunk，top-5 搜到了 3 个 → Recall@5 = 0.6
-    """
-    if len(relevant_ids) == 0:
-        return 1.0  # 没有相关chunk则视为完美（避免除零）
-    top_k = set(retrieved_ids[:k])
-    return len(top_k & relevant_ids) / len(relevant_ids)
-
-
-def precision_at_k(retrieved_ids: List[int], relevant_ids: Set[int], k: int) -> float:
-    """
-    Precision@k = |top-k中相关的| / k
-
-    衡量：检索是否"找对了"？（信噪比）
-    示例：top-5 中有 3 个相关 → Precision@5 = 0.6
-    """
-    if k == 0:
-        return 0.0
-    top_k = set(retrieved_ids[:k])
-    return len(top_k & relevant_ids) / k
-
-
-def mrr(retrieved_ids: List[int], relevant_ids: Set[int]) -> float:
-    """
-    MRR (Mean Reciprocal Rank) = 1 / (第一个相关结果的排名)
-
-    衡量：第一个正确答案排在第几位？
-    示例：第一个相关结果排第 2 → RR = 1/2 = 0.5
-          第一个相关结果排第 1 → RR = 1/1 = 1.0
-          没找到任何相关 → RR = 0
-    """
-    for rank, chunk_id in enumerate(retrieved_ids, start=1):
-        if chunk_id in relevant_ids:
-            return 1.0 / rank
-    return 0.0
-
-
-def ndcg_at_k(retrieved_ids: List[int], relevant_ids: Set[int], k: int) -> float:
-    """
-    NDCG@k (Normalized Discounted Cumulative Gain)
-
-    衡量：相关结果是否排在前面？（考虑排名位置的质量分）
-    比 MRR 更精细：在 top-k 中有多个相关结果时，排前面的权重更高。
-    """
-    if len(relevant_ids) == 0:
-        return 1.0
-
-    # DCG: 每个相关结果贡献 1/log2(rank+1)
-    dcg = 0.0
-    for i, chunk_id in enumerate(retrieved_ids[:k]):
-        if chunk_id in relevant_ids:
-            dcg += 1.0 / np.log2(i + 2)  # i+2 因为 i 从 0 开始
-
-    # IDCG: 理想排序下的 DCG（所有相关结果排在最前面）
-    ideal_rel_count = min(len(relevant_ids), k)
-    idcg = sum(1.0 / np.log2(i + 2) for i in range(ideal_rel_count))
-
-    if idcg == 0:
-        return 0.0
-    return dcg / idcg
-
-
-def hit_rate(retrieved_ids: List[int], relevant_ids: Set[int], k: int) -> float:
-    """
-    Hit Rate@k = top-k 中是否至少有一个相关结果？
-
-    二元指标：找到了就是 1，没找到就是 0。
-    适合衡量"用户至少能看到一个正确答案"的概率。
-    """
-    top_k = set(retrieved_ids[:k])
-    return 1.0 if (top_k & relevant_ids) else 0.0
+# 单一真源：所有指标数学都来自 docqa 包，本文件不再重复实现
+from docqa.evaluation.metrics import (
+    recall_at_k,
+    precision_at_k,
+    mrr,
+    ndcg_at_k,
+    hit_rate,
+)
 
 
 def compute_all_metrics(
     questions: List[Dict],
-    retriever,
-    embedder,
-    k_values: List[int] = None
+    search_fn,
+    k_values: List[int] = None,
 ) -> Dict:
     """
     对一个测试集计算所有检索指标。
@@ -101,23 +34,17 @@ def compute_all_metrics(
         测试用例列表，每个元素包含:
         - question: str
         - relevant_chunk_ids: List[int]
-    retriever : Retriever
-        已建好索引的检索器
-    embedder : Embedder
-        已加载的嵌入模型
+    search_fn : Callable
+        检索函数，签名宽松：
+          search_fn(question, top_k)            -> 旧式 dict 列表（eval.adapters.dict_search_fn 包出来的）
+          search_fn(question, embedder, top_k)  -> 兼容历史三参调用
+        返回项需是带 chunk_id 与 score 字段的对象/dict。
     k_values : List[int]
         要评估的 k 值列表，默认 [3, 5, 10, 20]
 
     返回
     ----
-    Dict : {
-        "recall@3": float, "recall@5": float, ...,
-        "precision@3": float, ...,
-        "mrr": float,
-        "ndcg@10": float,
-        "hit_rate@5": float, ...,
-        "per_question": [...]  每个题的详细结果
-    }
+    Dict : {recall@k, precision@k, hit_rate@k, ndcg@k, mrr, per_question}
     """
     if k_values is None:
         k_values = [3, 5, 10, 20]
@@ -133,14 +60,10 @@ def compute_all_metrics(
         question = q["question"]
         relevant = set(q["relevant_chunk_ids"])
 
-        # 执行检索
-        retrieved = retriever.search(question, embedder, top_k=max(k_values))
-        retrieved_ids = [chunk["chunk_id"] for chunk in retrieved]
+        retrieved = search_fn(question, top_k=max(k_values))
+        retrieved_ids = [_get(chunk, "chunk_id") for chunk in retrieved]
 
-        # 计算各指标
         per_q = {"question": question, "relevant_count": len(relevant)}
-
-        # Recall & Precision @k
         for k in k_values:
             r = recall_at_k(retrieved_ids, relevant, k)
             p = precision_at_k(retrieved_ids, relevant, k)
@@ -150,30 +73,31 @@ def compute_all_metrics(
             results[f"precision@{k}"].append(p)
             results[f"hit_rate@{k}"].append(h)
             results[f"ndcg@{k}"].append(n)
-
             per_q[f"recall@{k}"] = round(r, 4)
             per_q[f"precision@{k}"] = round(p, 4)
             per_q[f"hit_rate@{k}"] = round(h, 4)
 
-        # MRR
         m = mrr(retrieved_ids, relevant)
         results["mrr"].append(m)
         per_q["mrr"] = round(m, 4)
 
-        # 记录检索到的 chunk id 列表（方便调试）
         per_q["retrieved_ids"] = retrieved_ids[:10]
         per_q["retrieved_scores"] = [
-            round(chunk["score"], 4) for chunk in retrieved[:10]
+            round(_get(chunk, "score"), 4) for chunk in retrieved[:10]
         ]
-
         results["per_question"].append(per_q)
 
-    # 汇总：取平均
     summary = {}
     for metric_name, values in results.items():
         if metric_name == "per_question":
             continue
         summary[metric_name] = round(np.mean(values), 4)
     summary["per_question"] = results["per_question"]
-
     return summary
+
+
+def _get(chunk, key, default=0):
+    """兼容 dict（旧式）与对象（Chunk）两种取值方式。"""
+    if isinstance(chunk, dict):
+        return chunk.get(key, default)
+    return getattr(chunk, key, default if key == "score" else None)

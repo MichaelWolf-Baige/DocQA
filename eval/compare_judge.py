@@ -19,10 +19,10 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from eval.testset import load_testset
 from eval.auto_judge import judge_answer
-from main_part.embedder import Embedder
-from main_part.retriever import Retriever
-from main_part.prompt_builder import build_rag_prompt
-from main_part.generator import generate_answer
+from eval.adapters import (
+    build_eval_pipeline, dict_search_fn, make_generator,
+    build_rag_prompt, get_all_chunks,
+)
 from eval.config import DEFAULT_TOP_K
 
 
@@ -49,13 +49,15 @@ MANUAL_ORACLE = {
 
 
 def main():
-    print("加载系统...")
+    print("加载系统（新架构 docqa）...")
     questions = load_testset()
     retrievable = [q for q in questions if len(q['relevant_chunk_ids']) > 0]
-    embedder = Embedder()
-    retriever = Retriever()
-    all_data = retriever.collection.get()
-    print(f"测试集: {len(retrievable)} 题, 向量库: {retriever.collection.count()} 条")
+    pipeline = build_eval_pipeline(rebuild_index=False)
+    search_fn = dict_search_fn(pipeline)
+    generate = make_generator(pipeline)
+    all_chunks = get_all_chunks(pipeline)
+    cid_to_chunk = {c['chunk_id']: c for c in all_chunks}
+    print(f"测试集: {len(retrievable)} 题, 向量库: {pipeline.vector_store.count()} 条")
 
     # ====== 生成 Actual + Oracle 答案 ======
     print("\n" + "="*60)
@@ -69,22 +71,17 @@ def main():
         gt = q.get('ground_truth', '')
 
         # Actual
-        actual_results = retriever.search(question, embedder, top_k=DEFAULT_TOP_K)
+        actual_results = search_fn(question, top_k=DEFAULT_TOP_K)
         prompt_a = build_rag_prompt(question, actual_results)
-        answer_a = generate_answer(prompt_a)
+        answer_a = generate(prompt_a)
 
-        # Oracle
-        oracle_chunks = []
-        for j, cid in enumerate(all_data['ids']):
-            if int(cid) in relevant_ids:
-                oracle_chunks.append({
-                    'text': all_data['documents'][j],
-                    'source_page': all_data['metadatas'][j].get('source_page', '?'),
-                    'score': 1.0,
-                    'chunk_id': int(cid),
-                })
-        prompt_b = build_rag_prompt(question, oracle_chunks) if oracle_chunks else None
-        answer_b = generate_answer(prompt_b) if prompt_b else '[N/A]'
+        # Oracle（直接注入 gold chunks）
+        oracle_chunks = [cid_to_chunk[cid] for cid in relevant_ids if cid in cid_to_chunk]
+        if oracle_chunks:
+            prompt_b = build_rag_prompt(question, oracle_chunks)
+            answer_b = generate(prompt_b)
+        else:
+            answer_b = '[N/A]'
 
         samples.append({
             'id': q['id'],

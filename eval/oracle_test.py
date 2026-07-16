@@ -18,7 +18,6 @@ Oracle 瓶颈分析
 """
 
 import random
-import time
 from typing import List, Dict, Optional, Callable
 
 from .config import RANDOM_SEED, DEFAULT_TOP_K
@@ -26,8 +25,7 @@ from .config import RANDOM_SEED, DEFAULT_TOP_K
 
 def run_oracle_analysis(
     questions: List[Dict],
-    retriever,
-    embedder,
+    pipeline,
     generator: Callable[[str], str],
     top_k: int = DEFAULT_TOP_K,
     verbose: bool = True,
@@ -39,21 +37,26 @@ def run_oracle_analysis(
     ----
     questions : List[Dict]
         测试用例，每个需要 question, relevant_chunk_ids, 可选 ground_truth
-    retriever : Retriever
-    embedder : Embedder
+    pipeline : DocQAPipeline
+        已 ingest 好的 pipeline（提供 retrieve / vector_store）
     generator : Callable
         生成函数，签名为 generator(prompt: str) -> str
     top_k : int
         检索 top_k
+    verbose : bool
+        是否打印每题细节
 
     返回
     ----
     Dict : 包含每个条件的详细结果和聚合诊断
     """
     random.seed(RANDOM_SEED)
+    from eval.adapters import build_rag_prompt, get_chunk_by_id, get_all_chunks
 
-    # 获取所有可用的 chunk id 列表（用于随机干扰条件）
-    all_chunk_ids = _get_all_chunk_ids(retriever)
+    all_chunks = get_all_chunks(pipeline)
+    all_chunk_ids = [c['chunk_id'] for c in all_chunks]
+    cid_to_chunk = {c['chunk_id']: c for c in all_chunks}
+
     if not all_chunk_ids:
         raise RuntimeError("向量库为空，请先建好索引")
 
@@ -71,17 +74,18 @@ def run_oracle_analysis(
             print(f"\n[{i+1}/{len(questions)}] {question[:60]}...")
 
         # --- 条件 A：正常检索 ---
-        prompt_a, retrieved_chunks = _build_actual_prompt(
-            question, retriever, embedder, top_k
-        )
+        retrieved = pipeline.retrieve(question, top_k=top_k)
+        prompt_a = build_rag_prompt(question, retrieved)
         answer_a = generator(prompt_a)
         results["conditions"]["actual"].append(answer_a)
 
-        # --- 条件 B：Oracle 检索 ---
-        prompt_b = _build_oracle_prompt(
-            question, relevant_ids, retriever
-        )
-        answer_b = generator(prompt_b) if prompt_b else "[ERROR: gold chunks not found]"
+        # --- 条件 B：Oracle 检索（直接注入 gold chunks）---
+        oracle_chunks = [cid_to_chunk[cid] for cid in relevant_ids if cid in cid_to_chunk]
+        if oracle_chunks:
+            prompt_b = build_rag_prompt(question, oracle_chunks)
+            answer_b = generator(prompt_b)
+        else:
+            prompt_b, answer_b = None, "[ERROR: gold chunks not found]"
         results["conditions"]["oracle"].append(answer_b)
 
         # --- 条件 C：裸模型 ---
@@ -90,9 +94,11 @@ def run_oracle_analysis(
         results["conditions"]["bare"].append(answer_c)
 
         # --- 条件 D：随机干扰 ---
-        prompt_d = _build_noise_prompt(
-            question, relevant_ids, all_chunk_ids, retriever, top_k
-        )
+        noise_chunks = _pick_noise(relevant_ids, all_chunk_ids, cid_to_chunk, top_k)
+        if noise_chunks:
+            prompt_d = build_rag_prompt(question, noise_chunks)
+        else:
+            prompt_d = prompt_c   # fallback：没有可干扰 chunk 就降级为裸模型
         answer_d = generator(prompt_d)
         results["conditions"]["noise"].append(answer_d)
 
@@ -108,7 +114,7 @@ def run_oracle_analysis(
                 "bare": answer_c,
                 "noise": answer_d,
             },
-            "actual_retrieved_ids": [c["chunk_id"] for c in retrieved_chunks],
+            "actual_retrieved_ids": [c.chunk_id for c in retrieved],
         }
         results["per_question"].append(per_q)
 
@@ -118,54 +124,20 @@ def run_oracle_analysis(
             print(f"  bare:   {answer_c[:80]}...")
             print(f"  noise:  {answer_d[:80]}...")
 
-    # 汇总诊断（此时还没有正确率，需人工评估或后续用 judge 模型计算）
     results["diagnosis"] = _summarize_conditions(results)
-
     return results
 
 
-def _get_all_chunk_ids(retriever) -> List[int]:
-    """获取向量库中所有 chunk 的 id。"""
-    try:
-        all_data = retriever.collection.get()
-        return [int(id_) for id_ in all_data["ids"]]
-    except Exception:
+def _pick_noise(relevant_ids, all_chunk_ids, cid_to_chunk, top_k):
+    """条件 D：从非相关 chunk 中随机采样 top_k 个作为干扰上下文。"""
+    irrelevant = [cid for cid in all_chunk_ids if cid not in relevant_ids]
+    if not irrelevant:
         return []
-
-
-def _build_actual_prompt(question, retriever, embedder, top_k):
-    """条件 A：正常 RAG 检索 prompt。"""
-    from main_part.prompt_builder import build_rag_prompt
-
-    retrieved = retriever.search(question, embedder, top_k=top_k)
-    prompt = build_rag_prompt(question, retrieved)
-    return prompt, retrieved
-
-
-def _build_oracle_prompt(question, relevant_ids, retriever):
-    """条件 B：Oracle——直接把 gold chunks 注入上下文。"""
-    # 从向量库中按 chunk_id 取回文本
-    try:
-        all_data = retriever.collection.get()
-        oracle_chunks = []
-        for i, chunk_id in enumerate(all_data["ids"]):
-            if int(chunk_id) in relevant_ids:
-                oracle_chunks.append({
-                    "text": all_data["documents"][i],
-                    "source_page": all_data["metadatas"][i].get("source_page", "?"),
-                    "score": 1.0,  # Oracle 分数为满分
-                    "chunk_id": int(chunk_id),
-                })
-
-        if not oracle_chunks:
-            return None
-
-        from main_part.prompt_builder import build_rag_prompt
-        return build_rag_prompt(question, oracle_chunks)
-
-    except Exception as e:
-        print(f"  [WARN] Oracle 条件构建失败: {e}")
-        return None
+    if len(irrelevant) < top_k:
+        selected = irrelevant
+    else:
+        selected = random.sample(irrelevant, top_k)
+    return [cid_to_chunk[cid] for cid in selected if cid in cid_to_chunk]
 
 
 def _build_bare_prompt(question):
@@ -177,48 +149,12 @@ def _build_bare_prompt(question):
     )
 
 
-def _build_noise_prompt(question, relevant_ids, all_chunk_ids, retriever, top_k):
-    """条件 D：随机干扰——给随机的不相关 chunk。"""
-    # 选出不相关的 chunk
-    irrelevant = [cid for cid in all_chunk_ids if cid not in relevant_ids]
-
-    if len(irrelevant) < top_k:
-        # 不够就全用
-        selected = irrelevant
-    else:
-        selected = random.sample(irrelevant, top_k)
-
-    # 取回文本
-    try:
-        all_data = retriever.collection.get()
-        noise_chunks = []
-        for i, chunk_id in enumerate(all_data["ids"]):
-            if int(chunk_id) in selected:
-                noise_chunks.append({
-                    "text": all_data["documents"][i],
-                    "source_page": all_data["metadatas"][i].get("source_page", "?"),
-                    "score": 0.0,
-                    "chunk_id": int(chunk_id),
-                })
-
-        from main_part.prompt_builder import build_rag_prompt
-        return build_rag_prompt(question, noise_chunks)
-
-    except Exception as e:
-        print(f"  [WARN] Noise 条件构建失败: {e}")
-        return _build_bare_prompt(question)  # fallback
-
-
 def _summarize_conditions(results: Dict) -> Dict:
     """生成诊断摘要（不含正确率判断——正确率需要人工或 judge 模型评估）。"""
     n = len(results["per_question"])
-
-    # 统计各条件下的平均答案长度（粗略指标：过短可能意味着拒答或抽取失败）
     avg_len = {}
     for cond in ["actual", "oracle", "bare", "noise"]:
-        lengths = [
-            len(a) for a in results["conditions"][cond] if a
-        ]
+        lengths = [len(a) for a in results["conditions"][cond] if a]
         avg_len[cond] = round(sum(lengths) / max(len(lengths), 1), 1)
 
     return {

@@ -29,6 +29,7 @@ import sys
 import json
 import argparse
 from datetime import datetime
+from typing import Dict
 
 # 将项目根目录加入 path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -112,35 +113,20 @@ def check_environment() -> Dict:
 
 
 def build_system():
-    """构建完整的 RAG 系统（Embedder + Retriever + Generator）。"""
-    from main_part.pdf_parser import extract_text
-    from main_part.chunker import chunk_by_size
-    from main_part.embedder import Embedder
-    from main_part.retriever import Retriever
+    """构建完整的 RAG 系统（Pipeline + 检索/生成）。"""
+    from eval.adapters import build_eval_pipeline, dict_search_fn, make_generator
 
-    print("\n加载 Embedding 模型...")
-    embedder = Embedder(model_path=MODEL_DIR)
+    print("\n构建 RAG pipeline（新架构 docqa）...")
+    pipeline = build_eval_pipeline(pdf_path=PDF_PATH, rebuild_index=False)
+    print(f"向量库: {pipeline.vector_store.count()} 条记录")
 
-    # 检查向量库是否需要重建
-    retriever = Retriever(persist_dir=CHROMA_DIR)
-    if retriever.collection.count() == 0:
-        print("向量库为空，正在建索引...")
-        pages = extract_text(PDF_PATH)
-        chunks = chunk_by_size(pages)
-        chunks = embedder.embed_chunks(chunks)
-        retriever.index_chunks(chunks)
-    else:
-        print(f"向量库已有 {retriever.collection.count()} 条记录")
+    search_fn = dict_search_fn(pipeline)      # 旧式 dict 接口
+    generate = make_generator(pipeline)        # generate(prompt) -> str
 
-    # 生成函数
-    def generate(prompt: str) -> str:
-        from main_part.generator import generate_answer
-        return generate_answer(prompt)
-
-    return embedder, retriever, generate
+    return pipeline, search_fn, generate
 
 
-def step2_retrieval_metrics(questions, retriever, embedder) -> Dict:
+def step2_retrieval_metrics(questions, search_fn) -> Dict:
     """Step 2: 检索层指标评估。"""
     print("\n" + "=" * 60)
     print("Step 2: 检索层指标")
@@ -153,7 +139,7 @@ def step2_retrieval_metrics(questions, retriever, embedder) -> Dict:
     print(f"可检索题: {len(retrievable)}，拒答题: {len(unanswerable)}")
 
     results = compute_all_metrics(
-        retrievable, retriever, embedder, k_values=TOP_K_VALUES
+        retrievable, search_fn, k_values=TOP_K_VALUES
     )
 
     # 打印指标
@@ -187,7 +173,7 @@ def step2_retrieval_metrics(questions, retriever, embedder) -> Dict:
     return results
 
 
-def step3_oracle_analysis(questions, retriever, embedder, generate) -> Dict:
+def step3_oracle_analysis(questions, pipeline, generate) -> Dict:
     """Step 3: Oracle 瓶颈分析。"""
     print("\n" + "=" * 60)
     print("Step 3: Oracle 瓶颈分析 (四条件对照实验)")
@@ -197,7 +183,7 @@ def step3_oracle_analysis(questions, retriever, embedder, generate) -> Dict:
     retrievable = [q for q in questions if len(q["relevant_chunk_ids"]) > 0]
 
     results = run_oracle_analysis(
-        retrievable, retriever, embedder, generate,
+        retrievable, pipeline, generate,
         top_k=DEFAULT_TOP_K,
         verbose=True,
     )
@@ -289,7 +275,7 @@ def main():
     print(f"✅ 加载 {len(questions)} 道测试题")
 
     # 构建系统
-    embedder, retriever, generate = build_system()
+    pipeline, search_fn, generate = build_system()
 
     retrieval_results = None
     oracle_results = None
@@ -298,13 +284,13 @@ def main():
     # Step 2: 检索指标
     if not args.oracle_only:
         retrieval_results = step2_retrieval_metrics(
-            questions, retriever, embedder
+            questions, search_fn
         )
 
     # Step 3: Oracle 分析
     if not args.retrieval_only:
         oracle_results = step3_oracle_analysis(
-            questions, retriever, embedder, generate
+            questions, pipeline, generate
         )
 
     # Step 4: RAGAS（可选，需要 judge 模型）
@@ -317,7 +303,7 @@ def main():
                 build_eval_dataset, run_ragas_evaluation, print_ragas_report
             )
             eval_samples = build_eval_dataset(
-                questions, retriever, embedder, generate,
+                questions, search_fn, generate,
                 top_k=DEFAULT_TOP_K,
             )
             ragas_results = run_ragas_evaluation(eval_samples)

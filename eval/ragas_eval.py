@@ -45,8 +45,7 @@ def install_ragas_instructions():
 
 def build_eval_dataset(
     questions: List[Dict],
-    retriever,
-    embedder,
+    search_fn,
     generator,
     top_k: int = 10,
 ) -> List[Dict]:
@@ -62,7 +61,10 @@ def build_eval_dataset(
     ----
     questions : List[Dict]
         测试用例（需包含 ground_truth 字段）
-    retriever, embedder, generator : 同前
+    search_fn : Callable
+        eval.adapters.dict_search_fn 包出的检索函数，返回旧式 dict 列表
+    generator : Callable
+        generate(prompt: str) -> str
     top_k : int
         检索 top_k
 
@@ -70,7 +72,7 @@ def build_eval_dataset(
     ----
     List[Dict] : 可直接转为 HuggingFace Dataset 的字典列表
     """
-    from main_part.prompt_builder import build_rag_prompt
+    from eval.adapters import build_rag_prompt
 
     eval_samples = []
 
@@ -79,7 +81,7 @@ def build_eval_dataset(
         ground_truth = q.get("ground_truth", "")
 
         # 执行实际检索
-        retrieved = retriever.search(question, embedder, top_k=top_k)
+        retrieved = search_fn(question, top_k=top_k)
         contexts = [chunk["text"] for chunk in retrieved]
 
         # 生成答案
@@ -243,8 +245,7 @@ def print_ragas_report(scores: Dict) -> None:
 
 def quick_faithfulness_check(
     questions: List[Dict],
-    retriever,
-    embedder,
+    search_fn,
     generator,
     n_samples: int = 3,
 ) -> None:
@@ -254,7 +255,7 @@ def quick_faithfulness_check(
 
     用法：在完成基线运行后，快速看看实际输出质量。
     """
-    from main_part.prompt_builder import build_rag_prompt
+    from eval.adapters import build_rag_prompt
 
     print("\n" + "=" * 60)
     print(f"快速抽检 ({n_samples} 题) —— 请人眼判断答案质量")
@@ -265,7 +266,7 @@ def quick_faithfulness_check(
     samples = random.sample(questions, min(n_samples, len(questions)))
 
     for i, q in enumerate(samples):
-        retrieved = retriever.search(q["question"], embedder, top_k=10)
+        retrieved = search_fn(q["question"], top_k=10)
         prompt = build_rag_prompt(q["question"], retrieved)
         answer = generator(prompt)
 

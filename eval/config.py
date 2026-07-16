@@ -8,7 +8,6 @@ import os
 
 # --- 项目路径 ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MAIN_PART = os.path.join(PROJECT_ROOT, "main_part")
 PDF_PATH = os.path.join(PROJECT_ROOT, "uploaded.pdf")
 CHROMA_DIR = os.path.join(PROJECT_ROOT, "chroma_db")
 MODEL_DIR = os.path.join(PROJECT_ROOT, "models", "bge-small-zh-v1.5")

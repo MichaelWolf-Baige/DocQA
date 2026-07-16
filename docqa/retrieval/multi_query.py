@@ -35,23 +35,29 @@ class MultiQueryRetriever(Retriever):
         # 生成变体（含原始查询）
         queries = self.rewriter.rewrite(query, n_variants=3)
 
-        # 每个变体独立检索
-        per_query_top = max(top_k, 15)  # 每个变体取多一些，留冗余
+        # 每个变体独立检索，取多一些候选留冗余
+        per_query_top = max(top_k, 15)
 
-        # 收集所有结果 + 重排序用最高分
-        seen = {}  # chunk_id → (best_rank, best_chunk)
+        # RRF 融合：score(chunk) = Σ_variants 1 / (rrf_k + rank_in_variant)
+        # 复合键 (source_file, chunk_id) 避免多文档 id 碰撞，与 HybridRetriever 保持一致
+        rrf_scores = {}
+        chunk_map = {}
         for q in queries:
             chunks = self.retriever.search(q, top_k=per_query_top)
             for rank, c in enumerate(chunks, start=1):
-                if c.chunk_id not in seen or rank < seen[c.chunk_id][0]:
-                    seen[c.chunk_id] = (rank, c)
+                key = (getattr(c, 'source_file', '') or '', c.chunk_id)
+                rrf_scores[key] = rrf_scores.get(key, 0.0) + 1.0 / (self.rrf_k + rank)
+                # 保留首次出现的 Chunk 对象（同一 chunk 跨变体是同一对象或等价副本，取其一即可）
+                if key not in chunk_map:
+                    chunk_map[key] = c
 
-        # 按最佳排名排序
-        sorted_chunks = sorted(seen.values(), key=lambda x: x[0])
+        ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
         results = []
-        for rank, (_, c) in enumerate(sorted_chunks[:top_k]):
-            c.metadata['mq_best_rank'] = rank + 1
+        for rank, (key, score) in enumerate(ranked[:top_k], start=1):
+            c = chunk_map[key]
+            c.metadata['mq_rrf_score'] = round(score, 6)
+            c.metadata['mq_rank'] = rank
             results.append(c)
 
         return results

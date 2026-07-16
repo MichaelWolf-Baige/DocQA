@@ -17,10 +17,10 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from eval.testset import load_testset, print_stats, compute_stats
 from eval.metrics import compute_all_metrics, recall_at_k, precision_at_k, mrr, hit_rate
-from main_part.embedder import Embedder
-from main_part.retriever import Retriever
-from main_part.generator import generate_answer
-from main_part.prompt_builder import build_rag_prompt
+from eval.adapters import (
+    build_eval_pipeline, dict_search_fn, make_generator,
+    build_rag_prompt, get_all_chunks, get_chunk_by_id,
+)
 
 TOP_K = 10
 TOP_K_VALUES = [3, 5, 10, 20]
@@ -40,17 +40,21 @@ def main():
     unanswerable = [q for q in questions if len(q['relevant_chunk_ids']) == 0]
     print(f"可检索: {len(retrievable)}, 拒答: {len(unanswerable)}")
 
-    print("加载系统...")
-    embedder = Embedder()
-    retriever = Retriever()
-    print(f"向量库: {retriever.collection.count()} 条 (cosine 距离)")
+    print("加载系统（新架构 docqa）...")
+    pipeline = build_eval_pipeline(rebuild_index=False)
+    search_fn = dict_search_fn(pipeline)
+    generate = make_generator(pipeline)
+    all_chunks = get_all_chunks(pipeline)
+    cid_to_chunk = {c['chunk_id']: c for c in all_chunks}
+    all_chunk_ids = list(cid_to_chunk.keys())
+    print(f"向量库: {pipeline.vector_store.count()} 条 (cosine 距离)")
 
     # ========== Step 1: 检索指标 ==========
     print("\n" + "="*60)
     print("Step 1: 检索层指标")
     print("="*60)
 
-    metrics = compute_all_metrics(retrievable, retriever, embedder, k_values=TOP_K_VALUES)
+    metrics = compute_all_metrics(retrievable, search_fn, k_values=TOP_K_VALUES)
 
     report.append("## Step 1: 检索层指标\n")
     for k in TOP_K_VALUES:
@@ -89,8 +93,6 @@ def main():
     print("="*60)
 
     oracle_results = []
-    all_data = retriever.collection.get()
-    all_chunk_ids = [int(i) for i in all_data['ids']]
 
     for i, q in enumerate(retrievable):
         question = q['question']
@@ -99,41 +101,31 @@ def main():
         print(f"[{i+1}/{len(retrievable)}] {q['id']}: {question[:50]}...", end=' ', flush=True)
 
         # A: 实际检索
-        actual_results = retriever.search(question, embedder, top_k=TOP_K)
+        actual_results = search_fn(question, top_k=TOP_K)
         prompt_a = build_rag_prompt(question, actual_results)
-        answer_a = generate_answer(prompt_a)
+        answer_a = generate(prompt_a)
 
-        # B: Oracle
-        oracle_chunks = []
-        for j, cid in enumerate(all_data['ids']):
-            if int(cid) in relevant_ids:
-                oracle_chunks.append({
-                    'text': all_data['documents'][j],
-                    'source_page': all_data['metadatas'][j].get('source_page', '?'),
-                    'score': 1.0,
-                    'chunk_id': int(cid),
-                })
-        prompt_b = build_rag_prompt(question, oracle_chunks) if oracle_chunks else None
-        answer_b = generate_answer(prompt_b) if prompt_b else '[N/A]'
+        # B: Oracle（gold chunks 直接注入）
+        oracle_chunks = [cid_to_chunk[cid] for cid in relevant_ids if cid in cid_to_chunk]
+        if oracle_chunks:
+            prompt_b = build_rag_prompt(question, oracle_chunks)
+            answer_b = generate(prompt_b)
+        else:
+            answer_b = '[N/A]'
 
         # C: 裸模型
         prompt_c = '请回答以下问题。如果不知道答案，请直接说不知道。\n\n问题：' + question + '\n答案：'
-        answer_c = generate_answer(prompt_c)
+        answer_c = generate(prompt_c)
 
         # D: 随机干扰
         irrelevant = [cid for cid in all_chunk_ids if cid not in relevant_ids]
-        selected = random.sample(irrelevant, min(TOP_K, len(irrelevant)))
-        noise_chunks = []
-        for j, cid in enumerate(all_data['ids']):
-            if int(cid) in selected:
-                noise_chunks.append({
-                    'text': all_data['documents'][j],
-                    'source_page': all_data['metadatas'][j].get('source_page', '?'),
-                    'score': 0.0,
-                    'chunk_id': int(cid),
-                })
-        prompt_d = build_rag_prompt(question, noise_chunks)
-        answer_d = generate_answer(prompt_d)
+        selected = random.sample(irrelevant, min(TOP_K, len(irrelevant))) if irrelevant else []
+        noise_chunks = [cid_to_chunk[cid] for cid in selected if cid in cid_to_chunk]
+        if noise_chunks:
+            prompt_d = build_rag_prompt(question, noise_chunks)
+            answer_d = generate(prompt_d)
+        else:
+            answer_d = answer_c
 
         # 检索命中情况
         top10_ids = [c['chunk_id'] for c in actual_results[:TOP_K]]

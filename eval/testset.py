@@ -160,24 +160,38 @@ def print_stats(questions: List[Dict]) -> None:
 # --- 辅助：根据检索结果辅助标注 chunk id ---
 
 def search_and_show_chunks(
-    question: str, retriever, embedder, top_k: int = 15
+    question: str, pipeline, top_k: int = 15
 ) -> List[Dict]:
     """
     辅助工具：给定一个问题，返回检索结果，帮助人工判断哪些 chunk 是相关的。
 
     用法（在 Python 交互环境中）:
         >>> from eval.testset import search_and_show_chunks
-        >>> results = search_and_show_chunks("退团怎么退？", retriever, embedder)
+        >>> from eval.adapters import build_eval_pipeline
+        >>> pipeline = build_eval_pipeline()
+        >>> results = search_and_show_chunks("退团怎么退？", pipeline)
         >>> # 人工浏览后，记录 relevant_chunk_ids = [3, 5, 7]
+
+    参数
+    ----
+    question : 问句
+    pipeline : DocQAPipeline
+        已 ingest 好的 pipeline（新架构）
+    top_k : 返回结果数
+
+    返回
+    ----
+    List[Dict] : 旧式 dict 列表（含 chunk_id / source_page / score / text）
     """
-    results = retriever.search(question, embedder, top_k=top_k)
+    from eval.adapters import dict_search_fn
+    search = dict_search_fn(pipeline)
+    results = search(question, top_k)
     print(f"\n问题: {question}")
     print(f"检索到 {len(results)} 个结果:\n")
     for i, chunk in enumerate(results):
         marker = f"[{i+1}]"
         print(f"{marker} chunk_id={chunk['chunk_id']} | "
               f"第{chunk['source_page']}页 | score={chunk['score']:.4f}")
-        # 截断显示
         text = chunk["text"][:200].replace("\n", " ")
         print(f"    {text}...")
         print()
